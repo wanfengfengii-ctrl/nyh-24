@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}新建调拨 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-arrow-left-right text-info"></i> 新建调拨</h2>
+    <a href="{{ url_for('transfers') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="post" id="transferForm">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">调出冰窖 <span class="text-danger">*</span></label>
+                            <select class="form-select" name="from_house_id" id="from_house_id" onchange="loadBatches()" required>
+                                <option value="">请选择调出冰窖</option>
+                                {% for h in houses %}
+                                <option value="{{ h.id }}" {% if from_house_id == h.id %}selected{% endif %}>
+                                    {{ h.code }} - {{ h.location }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">调入冰窖 <span class="text-danger">*</span></label>
+                            <select class="form-select" name="to_house_id" required>
+                                <option value="">请选择调入冰窖</option>
+                                {% for h in houses %}
+                                <option value="{{ h.id }}">
+                                    {{ h.code }} - {{ h.location }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">申请人</label>
+                            <input type="text" class="form-control" name="applicant" value="{{ current_user.username }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">申请日期</label>
+                            <input type="date" class="form-control" value="{{ date.today() }}" disabled>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">调拨原因</label>
+                        <textarea class="form-control" name="reason" rows="3" placeholder="请填写调拨原因..."></textarea>
+                    </div>
+
+                    <hr>
+
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="bi bi-list-check"></i> 调拨明细</h5>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addBatchRow()" id="addRowBtn" disabled>
+                            <i class="bi bi-plus-lg"></i> 添加批次
+                        </button>
+                    </div>
+
+                    <div id="batchItems">
+                        {% if batches_from %}
+                        {% for batch in batches_from %}
+                        <div class="card mb-2 batch-row" data-batch-id="{{ batch.id }}">
+                            <div class="card-body py-3">
+                                <div class="row align-items-center">
+                                    <div class="col-md-5">
+                                        <small class="text-muted">批次</small>
+                                        <p class="mb-0 fw-bold">
+                                            {{ batch.entry_date }} - {{ batch.ice_count }}块
+                                            <span class="text-success">(剩余 {{ batch.current_remaining }})</span>
+                                        </p>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small">调拨数量</label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" name="quantities[]"
+                                                   min="1" max="{{ batch.current_remaining }}"
+                                                   placeholder="请输入数量" value="{{ batch.current_remaining }}">
+                                            <input type="hidden" name="batch_ids[]" value="{{ batch.id }}">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 text-end">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-center py-4 text-muted" id="emptyHint">
+                            <i class="bi bi-info-circle"></i> 请先选择调出冰窖以加载可用批次
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                        <a href="{{ url_for('transfers') }}" class="btn btn-secondary">取消</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-send"></i> 提交申请
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle text-info"></i> 调拨流程</h5>
+            </div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    <li class="mb-2">提交调拨申请</li>
+                    <li class="mb-2">管理员审批</li>
+                    <li class="mb-2">调出冰窖执行出库</li>
+                    <li class="mb-2">调入冰窖接收确认</li>
+                    <li>系统自动更新库存</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header bg-warning-subtle">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle text-warning"></i> 注意事项</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0 list-unstyled">
+                    <li class="mb-2">
+                        <i class="bi bi-check2 text-success"></i>
+                        调拨数量不能大于批次剩余量
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check2 text-success"></i>
+                        未审批的调拨不能执行出库
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check2 text-success"></i>
+                        接收时可记录途中损耗
+                    </li>
+                    <li>
+                        <i class="bi bi-check2 text-success"></i>
+                        所有操作保留时间、经办人记录
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadBatches() {
+    var fromHouseId = document.getElementById('from_house_id').value;
+    if (!fromHouseId) {
+        document.getElementById('addRowBtn').disabled = true;
+        document.getElementById('batchItems').innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-info-circle"></i> 请先选择调出冰窖以加载可用批次</div>';
+        return;
+    }
+
+    fetch('{{ url_for("api_batches_by_house", house_id=0) }}'.replace('/0/', '/' + fromHouseId + '/'))
+        .then(response => response.json())
+        .then(data => {
+            var container = document.getElementById('batchItems');
+            if (data.length === 0) {
+                container.innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-inbox"></i> 该冰窖暂无可用批次</div>';
+                document.getElementById('addRowBtn').disabled = true;
+                return;
+            }
+            container.innerHTML = '';
+            data.forEach(function(batch) {
+                addBatchCard(batch);
+            });
+            document.getElementById('addRowBtn').disabled = false;
+        });
+}
+
+function addBatchCard(batch) {
+    var container = document.getElementById('batchItems');
+    var card = document.createElement('div');
+    card.className = 'card mb-2 batch-row';
+    card.setAttribute('data-batch-id', batch.id);
+    card.innerHTML = `
+        <div class="card-body py-3">
+            <div class="row align-items-center">
+                <div class="col-md-5">
+                    <small class="text-muted">批次</small>
+                    <p class="mb-0 fw-bold">${batch.label}</p>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">调拨数量</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control" name="quantities[]"
+                               min="1" placeholder="请输入数量">
+                        <input type="hidden" name="batch_ids[]" value="${batch.id}">
+                    </div>
+                </div>
+                <div class="col-md-3 text-end">
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    container.appendChild(card);
+}
+
+function addBatchRow() {
+    var fromHouseId = document.getElementById('from_house_id').value;
+    if (!fromHouseId) {
+        alert('请先选择调出冰窖');
+        return;
+    }
+
+    fetch('{{ url_for("api_batches_by_house", house_id=0) }}'.replace('/0/', '/' + fromHouseId + '/'))
+        .then(response => response.json())
+        .then(data => {
+            if (data.length === 0) return;
+            addBatchCard(data[0]);
+        });
+}
+
+function removeRow(btn) {
+    btn.closest('.batch-row').remove();
+}
+</script>
+{% endblock %}

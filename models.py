@@ -197,3 +197,97 @@ class Notification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref='notifications')
+
+
+class TransferOrder(db.Model):
+    __tablename__ = 'transfer_orders'
+    id = db.Column(db.Integer, primary_key=True)
+    transfer_no = db.Column(db.String(50), unique=True, nullable=False)
+    from_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    to_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')
+    reason = db.Column(db.Text)
+    applicant = db.Column(db.String(100))
+    apply_date = db.Column(db.Date, nullable=False)
+    approver = db.Column(db.String(100))
+    approval_date = db.Column(db.Date)
+    approval_comment = db.Column(db.Text)
+    executor = db.Column(db.String(100))
+    execute_date = db.Column(db.Date)
+    receiver = db.Column(db.String(100))
+    receive_date = db.Column(db.Date)
+    receive_remark = db.Column(db.Text)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    from_house = db.relationship('IceHouse', foreign_keys=[from_house_id], backref='outgoing_transfers')
+    to_house = db.relationship('IceHouse', foreign_keys=[to_house_id], backref='incoming_transfers')
+    items = db.relationship('TransferItem', backref='transfer_order', lazy=True, cascade='all, delete-orphan')
+
+    def total_quantity(self):
+        return sum(item.quantity for item in self.items)
+
+    def total_received(self):
+        return sum(item.received_quantity or 0 for item in self.items)
+
+
+class TransferItem(db.Model):
+    __tablename__ = 'transfer_items'
+    id = db.Column(db.Integer, primary_key=True)
+    transfer_order_id = db.Column(db.Integer, db.ForeignKey('transfer_orders.id'), nullable=False)
+    batch_id = db.Column(db.Integer, db.ForeignKey('ice_batches.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    received_quantity = db.Column(db.Integer, default=0)
+    remark = db.Column(db.String(200))
+
+    batch = db.relationship('IceBatch', backref='transfer_items')
+
+
+class OutboundRecord(db.Model):
+    __tablename__ = 'outbound_records'
+    id = db.Column(db.Integer, primary_key=True)
+    outbound_no = db.Column(db.String(50), unique=True, nullable=False)
+    ice_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    batch_id = db.Column(db.Integer, db.ForeignKey('ice_batches.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    purpose = db.Column(db.String(100), nullable=False)
+    destination = db.Column(db.String(200))
+    handler = db.Column(db.String(100))
+    outbound_date = db.Column(db.Date, nullable=False)
+    remark = db.Column(db.Text)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    ice_house = db.relationship('IceHouse', backref='outbound_records')
+    batch = db.relationship('IceBatch', backref='outbound_records')
+
+
+class InventoryFlow(db.Model):
+    __tablename__ = 'inventory_flows'
+    id = db.Column(db.Integer, primary_key=True)
+    ice_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    batch_id = db.Column(db.Integer, db.ForeignKey('ice_batches.id'), nullable=False)
+    flow_type = db.Column(db.String(30), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    balance_after = db.Column(db.Integer, nullable=False)
+    related_type = db.Column(db.String(50))
+    related_id = db.Column(db.Integer)
+    operator = db.Column(db.String(100))
+    operation_time = db.Column(db.DateTime, default=datetime.utcnow)
+    remark = db.Column(db.String(200))
+
+    ice_house = db.relationship('IceHouse', backref='inventory_flows')
+    batch = db.relationship('IceBatch', backref='inventory_flows')
+
+    FLOW_TYPE_LABELS = {
+        'entry': '入窖',
+        'transfer_out': '调拨出库',
+        'transfer_in': '调拨入库',
+        'outbound': '出窖',
+        'melt_loss': '融损',
+        'adjust': '库存调整',
+    }
+
+    def flow_type_label(self):
+        return self.FLOW_TYPE_LABELS.get(self.flow_type, self.flow_type)

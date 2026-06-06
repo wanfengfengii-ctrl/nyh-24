@@ -13,7 +13,8 @@ from flask_login import (
 
 from models import (
     db, User, IceHouse, IceBatch, Inspection, MeltLoss, Repair,
-    RiskAlert, RectificationTask, ReviewRecord, ApprovalRequest, Notification
+    RiskAlert, RectificationTask, ReviewRecord, ApprovalRequest, Notification,
+    TransferOrder, TransferItem, OutboundRecord, InventoryFlow
 )
 
 
@@ -1375,6 +1376,649 @@ def create_app():
             mimetype='text/csv; charset=utf-8-sig',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'}
         )
+
+    def generate_transfer_no():
+        prefix = 'DB' + datetime.now().strftime('%Y%m%d')
+        count = TransferOrder.query.filter(
+            TransferOrder.transfer_no.like(prefix + '%')
+        ).count()
+        return f'{prefix}{count + 1:03d}'
+
+    def generate_outbound_no():
+        prefix = 'CK' + datetime.now().strftime('%Y%m%d')
+        count = OutboundRecord.query.filter(
+            OutboundRecord.outbound_no.like(prefix + '%')
+        ).count()
+        return f'{prefix}{count + 1:03d}'
+
+    def create_inventory_flow(ice_house_id, batch_id, flow_type, quantity,
+                              balance_after, related_type=None, related_id=None,
+                              operator=None, remark=None):
+        flow = InventoryFlow(
+            ice_house_id=ice_house_id,
+            batch_id=batch_id,
+            flow_type=flow_type,
+            quantity=quantity,
+            balance_after=balance_after,
+            related_type=related_type,
+            related_id=related_id,
+            operator=operator or current_user.username,
+            remark=remark
+        )
+        db.session.add(flow)
+        return flow
+
+    # ========== 调拨管理 ==========
+    @app.route('/transfers')
+    @login_required
+    def transfers():
+        status = request.args.get('status', '')
+        query = TransferOrder.query
+        if status:
+            query = query.filter_by(status=status)
+        orders = query.order_by(TransferOrder.created_at.desc()).all()
+        return render_template('transfers/list.html', orders=orders, status=status)
+
+    @app.route('/transfers/new', methods=['GET', 'POST'])
+    @login_required
+    def transfer_new():
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+
+        if request.method == 'POST':
+            from_house_id = request.form.get('from_house_id', type=int)
+            to_house_id = request.form.get('to_house_id', type=int)
+            reason = request.form.get('reason', '').strip()
+            applicant = request.form.get('applicant', '').strip()
+            batch_ids = request.form.getlist('batch_ids[]', type=int)
+            quantities = request.form.getlist('quantities[]', type=int)
+
+            if not from_house_id or not to_house_id:
+                flash('请选择调出和调入冰窖', 'danger')
+                batches_from = []
+                return render_template('transfers/form.html', order=None, houses=houses,
+                                       from_house_id=from_house_id, batches_from=batches_from)
+
+            if from_house_id == to_house_id:
+                flash('调出冰窖和调入冰窖不能相同', 'danger')
+                batches_from = IceBatch.query.filter_by(ice_house_id=from_house_id).filter(
+                    IceBatch.current_remaining > 0
+                ).order_by(IceBatch.entry_date.desc()).all()
+                return render_template('transfers/form.html', order=None, houses=houses,
+                                       from_house_id=from_house_id, batches_from=batches_from)
+
+            if not batch_ids or not quantities:
+                flash('请至少添加一条调拨明细', 'danger')
+                batches_from = IceBatch.query.filter_by(ice_house_id=from_house_id).filter(
+                    IceBatch.current_remaining > 0
+                ).order_by(IceBatch.entry_date.desc()).all()
+                return render_template('transfers/form.html', order=None, houses=houses,
+                                       from_house_id=from_house_id, batches_from=batches_from)
+
+            batch_quantity_map = {}
+            for i, bid in enumerate(batch_ids):
+                if i < len(quantities) and quantities[i] > 0:
+                    batch_quantity_map[bid] = quantities[i]
+
+            if not batch_quantity_map:
+                flash('请填写有效的调拨数量', 'danger')
+                batches_from = IceBatch.query.filter_by(ice_house_id=from_house_id).filter(
+                    IceBatch.current_remaining > 0
+                ).order_by(IceBatch.entry_date.desc()).all()
+                return render_template('transfers/form.html', order=None, houses=houses,
+                                       from_house_id=from_house_id, batches_from=batches_from)
+
+            for bid, qty in batch_quantity_map.items():
+                batch = IceBatch.query.get(bid)
+                if not batch or batch.ice_house_id != from_house_id:
+                    flash(f'批次 {bid} 不存在或不属于调出冰窖', 'danger')
+                    batches_from = IceBatch.query.filter_by(ice_house_id=from_house_id).filter(
+                        IceBatch.current_remaining > 0
+                    ).order_by(IceBatch.entry_date.desc()).all()
+                    return render_template('transfers/form.html', order=None, houses=houses,
+                                           from_house_id=from_house_id, batches_from=batches_from)
+                if qty > batch.current_remaining:
+                    flash(f'批次 {bid} 调拨数量不能大于当前剩余量（{batch.current_remaining}）', 'danger')
+                    batches_from = IceBatch.query.filter_by(ice_house_id=from_house_id).filter(
+                        IceBatch.current_remaining > 0
+                    ).order_by(IceBatch.entry_date.desc()).all()
+                    return render_template('transfers/form.html', order=None, houses=houses,
+                                           from_house_id=from_house_id, batches_from=batches_from)
+
+            order = TransferOrder(
+                transfer_no=generate_transfer_no(),
+                from_house_id=from_house_id,
+                to_house_id=to_house_id,
+                reason=reason,
+                applicant=applicant or current_user.username,
+                apply_date=date.today(),
+                status='pending',
+                created_by=current_user.id
+            )
+            db.session.add(order)
+            db.session.flush()
+
+            for bid, qty in batch_quantity_map.items():
+                item = TransferItem(
+                    transfer_order_id=order.id,
+                    batch_id=bid,
+                    quantity=qty
+                )
+                db.session.add(item)
+
+            admin = User.query.filter_by(username='admin').first()
+            if admin:
+                create_notification(
+                    admin.id, 'transfer',
+                    f'新调拨申请：{order.transfer_no}',
+                    f'{order.from_house.code} → {order.to_house.code}，共{order.total_quantity()}块冰待审批',
+                    'transfer', order.id
+                )
+
+            db.session.commit()
+            flash('调拨申请已提交，等待审批', 'success')
+            return redirect(url_for('transfer_detail', order_id=order.id))
+
+        batches_from = []
+        return render_template('transfers/form.html', order=None, houses=houses,
+                               from_house_id=None, batches_from=batches_from)
+
+    @app.route('/transfers/<int:order_id>')
+    @login_required
+    def transfer_detail(order_id):
+        order = TransferOrder.query.get_or_404(order_id)
+        return render_template('transfers/detail.html', order=order)
+
+    @app.route('/transfers/<int:order_id>/approve', methods=['POST'])
+    @login_required
+    def transfer_approve(order_id):
+        order = TransferOrder.query.get_or_404(order_id)
+        if order.status != 'pending':
+            flash('该调拨单已处理', 'warning')
+            return redirect(url_for('transfer_detail', order_id=order_id))
+
+        comment = request.form.get('approval_comment', '').strip()
+
+        for item in order.items:
+            batch = item.batch
+            if item.quantity > batch.current_remaining:
+                flash(f'审批失败：批次 {batch.id} 库存不足，当前剩余 {batch.current_remaining}', 'danger')
+                return redirect(url_for('transfer_detail', order_id=order_id))
+
+        order.status = 'approved'
+        order.approver = current_user.username
+        order.approval_date = date.today()
+        order.approval_comment = comment
+
+        create_notification(
+            None, 'transfer',
+            f'调拨已审批通过：{order.transfer_no}',
+            f'{order.from_house.code} → {order.to_house.code}，共{order.total_quantity()}块冰',
+            'transfer', order.id
+        )
+
+        db.session.commit()
+        flash('调拨审批通过', 'success')
+        return redirect(url_for('transfer_detail', order_id=order_id))
+
+    @app.route('/transfers/<int:order_id>/reject', methods=['POST'])
+    @login_required
+    def transfer_reject(order_id):
+        order = TransferOrder.query.get_or_404(order_id)
+        if order.status != 'pending':
+            flash('该调拨单已处理', 'warning')
+            return redirect(url_for('transfer_detail', order_id=order_id))
+
+        comment = request.form.get('approval_comment', '').strip()
+        if not comment:
+            flash('请填写驳回原因', 'danger')
+            return redirect(url_for('transfer_detail', order_id=order_id))
+
+        order.status = 'rejected'
+        order.approver = current_user.username
+        order.approval_date = date.today()
+        order.approval_comment = comment
+
+        create_notification(
+            None, 'transfer',
+            f'调拨已被驳回：{order.transfer_no}',
+            f'驳回原因：{comment}',
+            'transfer', order.id
+        )
+
+        db.session.commit()
+        flash('调拨已驳回', 'info')
+        return redirect(url_for('transfer_detail', order_id=order_id))
+
+    @app.route('/transfers/<int:order_id>/execute', methods=['POST'])
+    @login_required
+    def transfer_execute(order_id):
+        order = TransferOrder.query.get_or_404(order_id)
+        if order.status != 'approved':
+            flash('只有审批通过的调拨单才能执行出库', 'danger')
+            return redirect(url_for('transfer_detail', order_id=order_id))
+
+        executor = request.form.get('executor', '').strip() or current_user.username
+
+        for item in order.items:
+            batch = item.batch
+            if item.quantity > batch.current_remaining:
+                flash(f'执行失败：批次 {batch.id} 库存不足，当前剩余 {batch.current_remaining}', 'danger')
+                return redirect(url_for('transfer_detail', order_id=order_id))
+
+        for item in order.items:
+            batch = item.batch
+            batch.current_remaining -= item.quantity
+            create_inventory_flow(
+                ice_house_id=order.from_house_id,
+                batch_id=batch.id,
+                flow_type='transfer_out',
+                quantity=-item.quantity,
+                balance_after=batch.current_remaining,
+                related_type='transfer',
+                related_id=order.id,
+                operator=executor,
+                remark=f'调拨至 {order.to_house.code}'
+            )
+
+        order.status = 'executing'
+        order.executor = executor
+        order.execute_date = date.today()
+
+        create_notification(
+            None, 'transfer',
+            f'调拨已出库：{order.transfer_no}',
+            f'{order.from_house.code} → {order.to_house.code}，已出库{order.total_quantity()}块冰，待接收确认',
+            'transfer', order.id
+        )
+
+        db.session.commit()
+        flash('调拨出库执行成功，待接收确认', 'success')
+        return redirect(url_for('transfer_detail', order_id=order_id))
+
+    @app.route('/transfers/<int:order_id>/receive', methods=['GET', 'POST'])
+    @login_required
+    def transfer_receive(order_id):
+        order = TransferOrder.query.get_or_404(order_id)
+        if order.status != 'executing':
+            flash('只有执行中的调拨单才能进行接收确认', 'danger')
+            return redirect(url_for('transfer_detail', order_id=order_id))
+
+        if request.method == 'POST':
+            receiver = request.form.get('receiver', '').strip() or current_user.username
+            receive_remark = request.form.get('receive_remark', '').strip()
+            received_qtys = request.form.getlist('received_quantities[]', type=int)
+
+            for i, item in enumerate(order.items):
+                received = received_qtys[i] if i < len(received_qtys) else item.quantity
+                if received < 0:
+                    flash('实收数量不能为负数', 'danger')
+                    return render_template('transfers/receive.html', order=order)
+                if received > item.quantity:
+                    flash('实收数量不能大于调拨数量', 'danger')
+                    return render_template('transfers/receive.html', order=order)
+                item.received_quantity = received
+
+                target_batch = IceBatch.query.filter_by(
+                    ice_house_id=order.to_house_id,
+                    entry_date=item.batch.entry_date,
+                    ice_count=item.batch.ice_count
+                ).first()
+
+                if target_batch:
+                    target_batch.current_remaining += received
+                else:
+                    target_batch = IceBatch(
+                        ice_house_id=order.to_house_id,
+                        entry_date=item.batch.entry_date,
+                        ice_count=item.batch.ice_count,
+                        expected_storage_period=item.batch.expected_storage_period,
+                        current_remaining=received
+                    )
+                    db.session.add(target_batch)
+                    db.session.flush()
+
+                create_inventory_flow(
+                    ice_house_id=order.to_house_id,
+                    batch_id=target_batch.id,
+                    flow_type='transfer_in',
+                    quantity=received,
+                    balance_after=target_batch.current_remaining,
+                    related_type='transfer',
+                    related_id=order.id,
+                    operator=receiver,
+                    remark=f'从 {order.from_house.code} 调入'
+                )
+
+                loss_qty = item.quantity - received
+                if loss_qty > 0:
+                    create_inventory_flow(
+                        ice_house_id=order.to_house_id,
+                        batch_id=target_batch.id,
+                        flow_type='melt_loss',
+                        quantity=-loss_qty,
+                        balance_after=target_batch.current_remaining,
+                        related_type='transfer',
+                        related_id=order.id,
+                        operator=receiver,
+                        remark='调拨途中损耗'
+                    )
+
+            order.status = 'completed'
+            order.receiver = receiver
+            order.receive_date = date.today()
+            order.receive_remark = receive_remark
+
+            create_notification(
+                None, 'transfer',
+                f'调拨已完成：{order.transfer_no}',
+                f'实收{order.total_received()}块冰，接收人：{receiver}',
+                'transfer', order.id
+            )
+
+            db.session.commit()
+            flash('接收确认完成，调拨已完成', 'success')
+            return redirect(url_for('transfer_detail', order_id=order_id))
+
+        return render_template('transfers/receive.html', order=order)
+
+    # ========== 出窖登记 ==========
+    @app.route('/outbounds')
+    @login_required
+    def outbounds():
+        ice_house_id = request.args.get('ice_house_id', type=int)
+        purpose = request.args.get('purpose', '')
+
+        query = OutboundRecord.query
+        if ice_house_id:
+            query = query.filter_by(ice_house_id=ice_house_id)
+        if purpose:
+            query = query.filter_by(purpose=purpose)
+
+        records = query.order_by(OutboundRecord.outbound_date.desc()).all()
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+
+        purposes = ['食品保鲜', '医疗冷链', '工业冷却', '其他']
+        return render_template('outbounds/list.html', records=records, houses=houses,
+                               ice_house_id=ice_house_id, purpose=purpose, purposes=purposes)
+
+    @app.route('/outbounds/new', methods=['GET', 'POST'])
+    @login_required
+    def outbound_new():
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        purposes = ['食品保鲜', '医疗冷链', '工业冷却', '其他']
+
+        if request.method == 'POST':
+            ice_house_id = request.form.get('ice_house_id', type=int)
+            batch_id = request.form.get('batch_id', type=int)
+            quantity = request.form.get('quantity', type=int)
+            purpose = request.form.get('purpose', '').strip()
+            destination = request.form.get('destination', '').strip()
+            handler = request.form.get('handler', '').strip()
+            outbound_date_str = request.form.get('outbound_date')
+            remark = request.form.get('remark', '').strip()
+
+            if not ice_house_id or not batch_id or not quantity or not purpose:
+                flash('请填写必填信息', 'danger')
+                batches = IceBatch.query.filter_by(ice_house_id=ice_house_id or 0).filter(
+                    IceBatch.current_remaining > 0
+                ).order_by(IceBatch.entry_date.desc()).all()
+                return render_template('outbounds/form.html', record=None, houses=houses,
+                                       purposes=purposes, batches=batches, ice_house_id=ice_house_id)
+
+            batch = IceBatch.query.get(batch_id)
+            if not batch or batch.ice_house_id != ice_house_id:
+                flash('批次不存在或不属于所选冰窖', 'danger')
+                batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).filter(
+                    IceBatch.current_remaining > 0
+                ).order_by(IceBatch.entry_date.desc()).all()
+                return render_template('outbounds/form.html', record=None, houses=houses,
+                                       purposes=purposes, batches=batches, ice_house_id=ice_house_id)
+
+            if quantity > batch.current_remaining:
+                flash('出窖数量不能大于当前剩余量', 'danger')
+                batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).filter(
+                    IceBatch.current_remaining > 0
+                ).order_by(IceBatch.entry_date.desc()).all()
+                return render_template('outbounds/form.html', record=None, houses=houses,
+                                       purposes=purposes, batches=batches, ice_house_id=ice_house_id)
+
+            outbound_date = date.today()
+            if outbound_date_str:
+                outbound_date = datetime.strptime(outbound_date_str, '%Y-%m-%d').date()
+                if outbound_date > date.today():
+                    flash('出窖日期不能晚于当前日期', 'danger')
+                    batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).filter(
+                        IceBatch.current_remaining > 0
+                    ).order_by(IceBatch.entry_date.desc()).all()
+                    return render_template('outbounds/form.html', record=None, houses=houses,
+                                           purposes=purposes, batches=batches, ice_house_id=ice_house_id)
+
+            record = OutboundRecord(
+                outbound_no=generate_outbound_no(),
+                ice_house_id=ice_house_id,
+                batch_id=batch_id,
+                quantity=quantity,
+                purpose=purpose,
+                destination=destination,
+                handler=handler or current_user.username,
+                outbound_date=outbound_date,
+                remark=remark,
+                created_by=current_user.id
+            )
+            db.session.add(record)
+            db.session.flush()
+
+            batch.current_remaining -= quantity
+            create_inventory_flow(
+                ice_house_id=ice_house_id,
+                batch_id=batch_id,
+                flow_type='outbound',
+                quantity=-quantity,
+                balance_after=batch.current_remaining,
+                related_type='outbound',
+                related_id=record.id,
+                operator=handler or current_user.username,
+                remark=f'{purpose} - {destination}' if destination else purpose
+            )
+
+            db.session.commit()
+            flash('出窖登记成功', 'success')
+            return redirect(url_for('outbounds'))
+
+        batches = []
+        return render_template('outbounds/form.html', record=None, houses=houses,
+                               purposes=purposes, batches=batches, ice_house_id=None)
+
+    # ========== 库存流水 ==========
+    @app.route('/inventory-flows')
+    @login_required
+    def inventory_flows():
+        ice_house_id = request.args.get('ice_house_id', type=int)
+        batch_id = request.args.get('batch_id', type=int)
+        flow_type = request.args.get('flow_type', '')
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+
+        query = InventoryFlow.query
+        if ice_house_id:
+            query = query.filter_by(ice_house_id=ice_house_id)
+        if batch_id:
+            query = query.filter_by(batch_id=batch_id)
+        if flow_type:
+            query = query.filter_by(flow_type=flow_type)
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            query = query.filter(InventoryFlow.operation_time >= start_date)
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            query = query.filter(InventoryFlow.operation_time <= end_date)
+
+        flows = query.order_by(InventoryFlow.operation_time.desc()).all()
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        batches = []
+        if ice_house_id:
+            batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).order_by(
+                IceBatch.entry_date.desc()
+            ).all()
+
+        flow_types = [
+            ('entry', '入窖'),
+            ('transfer_out', '调拨出库'),
+            ('transfer_in', '调拨入库'),
+            ('outbound', '出窖'),
+            ('melt_loss', '融损'),
+            ('adjust', '库存调整'),
+        ]
+
+        return render_template('inventory_flows/list.html',
+                               flows=flows, houses=houses, batches=batches,
+                               ice_house_id=ice_house_id, batch_id=batch_id,
+                               flow_type=flow_type, flow_types=flow_types,
+                               start_date=start_date_str, end_date=end_date_str)
+
+    # ========== 批次追溯链路 ==========
+    @app.route('/batch-trace/<int:batch_id>')
+    @login_required
+    def batch_trace(batch_id):
+        batch = IceBatch.query.get_or_404(batch_id)
+
+        flows = InventoryFlow.query.filter_by(batch_id=batch_id).order_by(
+            InventoryFlow.operation_time.asc()
+        ).all()
+
+        transfer_items_out = TransferItem.query.filter_by(batch_id=batch_id).all()
+        transfer_ids_out = [item.transfer_order_id for item in transfer_items_out]
+        transfers_out = TransferOrder.query.filter(
+            TransferOrder.id.in_(transfer_ids_out)
+        ).order_by(TransferOrder.created_at.desc()).all() if transfer_ids_out else []
+
+        trace_chain = []
+        trace_chain.append({
+            'type': 'origin',
+            'title': '入窖',
+            'house': batch.ice_house.code,
+            'date': batch.entry_date,
+            'quantity': batch.ice_count,
+            'description': f'初始入窖 {batch.ice_count} 块'
+        })
+
+        for flow in flows:
+            if flow.flow_type == 'transfer_out':
+                order = TransferOrder.query.filter_by(id=flow.related_id).first() if flow.related_type == 'transfer' else None
+                trace_chain.append({
+                    'type': 'transfer_out',
+                    'title': '调拨出库',
+                    'house': order.to_house.code if order else '',
+                    'date': flow.operation_time.date() if flow.operation_time else '',
+                    'quantity': abs(flow.quantity),
+                    'description': flow.remark or '',
+                    'order_no': order.transfer_no if order else ''
+                })
+            elif flow.flow_type == 'transfer_in':
+                order = TransferOrder.query.filter_by(id=flow.related_id).first() if flow.related_type == 'transfer' else None
+                trace_chain.append({
+                    'type': 'transfer_in',
+                    'title': '调拨入库',
+                    'house': order.from_house.code if order else '',
+                    'date': flow.operation_time.date() if flow.operation_time else '',
+                    'quantity': abs(flow.quantity),
+                    'description': flow.remark or '',
+                    'order_no': order.transfer_no if order else ''
+                })
+            elif flow.flow_type == 'outbound':
+                record = OutboundRecord.query.filter_by(id=flow.related_id).first() if flow.related_type == 'outbound' else None
+                trace_chain.append({
+                    'type': 'outbound',
+                    'title': '出窖',
+                    'house': '',
+                    'date': flow.operation_time.date() if flow.operation_time else '',
+                    'quantity': abs(flow.quantity),
+                    'description': flow.remark or '',
+                    'purpose': record.purpose if record else '',
+                    'destination': record.destination if record else ''
+                })
+            elif flow.flow_type == 'melt_loss':
+                trace_chain.append({
+                    'type': 'melt_loss',
+                    'title': '融损',
+                    'house': '',
+                    'date': flow.operation_time.date() if flow.operation_time else '',
+                    'quantity': abs(flow.quantity),
+                    'description': flow.remark or ''
+                })
+
+        return render_template('batch_trace/detail.html',
+                               batch=batch, flows=flows, trace_chain=trace_chain,
+                               transfers_out=transfers_out)
+
+    # ========== 异常损耗比对 ==========
+    @app.route('/loss-comparison')
+    @login_required
+    def loss_comparison():
+        ice_house_id = request.args.get('ice_house_id', type=int)
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        results = []
+
+        if ice_house_id and start_date_str and end_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+            batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).all()
+
+            for batch in batches:
+                melt_losses = MeltLoss.query.filter_by(batch_id=batch.id).filter(
+                    MeltLoss.record_date.between(start_date, end_date)
+                ).all()
+                total_melt_loss = sum(l.loss_amount for l in melt_losses)
+
+                transfer_loss_qty = 0
+                transfer_items = TransferItem.query.filter_by(batch_id=batch.id).all()
+                for item in transfer_items:
+                    order = TransferOrder.query.get(item.transfer_order_id)
+                    if order and order.status == 'completed' and order.receive_date:
+                        if start_date <= order.receive_date <= end_date:
+                            transfer_loss_qty += (item.quantity - item.received_quantity)
+
+                outbound_flows = InventoryFlow.query.filter_by(
+                    batch_id=batch.id, flow_type='outbound'
+                ).all()
+
+                total_out = sum(abs(f.quantity) for f in outbound_flows)
+                total_loss = total_melt_loss + transfer_loss_qty
+
+                expected_loss = 0
+                storage_days = (date.today() - batch.entry_date).days
+                if storage_days > 0 and batch.ice_count > 0:
+                    daily_rate = 0.002
+                    expected_loss = int(batch.ice_count * daily_rate * min(storage_days, 365))
+
+                abnormal = total_loss > expected_loss * 1.3
+                diff = total_loss - expected_loss
+                diff_rate = round((diff / expected_loss * 100), 2) if expected_loss > 0 else 0
+
+                results.append({
+                    'batch_id': batch.id,
+                    'entry_date': batch.entry_date,
+                    'ice_count': batch.ice_count,
+                    'current_remaining': batch.current_remaining,
+                    'melt_loss': total_melt_loss,
+                    'transfer_loss': transfer_loss_qty,
+                    'total_loss': total_loss,
+                    'expected_loss': expected_loss,
+                    'abnormal': abnormal,
+                    'diff': diff,
+                    'diff_rate': diff_rate,
+                })
+
+            results.sort(key=lambda x: x['total_loss'], reverse=True)
+
+        return render_template('loss_comparison/index.html',
+                               houses=houses, results=results,
+                               ice_house_id=ice_house_id,
+                               start_date=start_date_str, end_date=end_date_str)
 
     @app.context_processor
     def inject_now():

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}出窖登记 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-box-arrow-up-right text-warning"></i> 出窖登记</h2>
+    <a href="{{ url_for('outbound_new') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg"></i> 新增出窖
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">冰窖</label>
+                <select class="form-select" name="ice_house_id">
+                    <option value="">全部冰窖</option>
+                    {% for h in houses %}
+                    <option value="{{ h.id }}" {% if ice_house_id == h.id %}selected{% endif %}>
+                        {{ h.code }} - {{ h.location }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">用途</label>
+                <select class="form-select" name="purpose">
+                    <option value="">全部用途</option>
+                    {% for p in purposes %}
+                    <option value="{{ p }}" {% if purpose == p %}selected{% endif %}>
+                        {{ p }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-outline-primary w-100">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if records %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>出窖单号</th>
+                        <th>冰窖</th>
+                        <th>批次</th>
+                        <th>数量</th>
+                        <th>用途</th>
+                        <th>去向</th>
+                        <th>经办人</th>
+                        <th>出窖日期</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records %}
+                    <tr>
+                        <td class="fw-bold">{{ record.outbound_no }}</td>
+                        <td>{{ record.ice_house.code }}</td>
+                        <td>#{{ record.batch_id }}</td>
+                        <td>{{ record.quantity }} 块</td>
+                        <td>
+                            <span class="badge bg-info">{{ record.purpose }}</span>
+                        </td>
+                        <td>{{ record.destination or '-' }}</td>
+                        <td>{{ record.handler or '-' }}</td>
+                        <td>{{ record.outbound_date }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-info" onclick="showDetail({{ record.id }})">
+                                <i class="bi bi-eye"></i> 详情
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-inbox fs-1"></i>
+            <p class="mt-3">暂无出窖记录</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" id="modalContent">
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showDetail(id) {
+    fetch('{{ url_for("outbounds") }}/' + id)
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('modalContent').innerHTML = html;
+            var modal = new bootstrap.Modal(document.getElementById('detailModal'));
+            modal.show();
+        });
+}
+</script>
+{% endblock %}

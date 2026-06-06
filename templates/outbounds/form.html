@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}新增出窖 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-box-arrow-up-right text-warning"></i> 新增出窖</h2>
+    <a href="{{ url_for('outbounds') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="post">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">冰窖 <span class="text-danger">*</span></label>
+                            <select class="form-select" name="ice_house_id" id="ice_house_id" onchange="loadBatches()" required>
+                                <option value="">请选择冰窖</option>
+                                {% for h in houses %}
+                                <option value="{{ h.id }}" {% if ice_house_id == h.id %}selected{% endif %}>
+                                    {{ h.code }} - {{ h.location }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">批次 <span class="text-danger">*</span></label>
+                            <select class="form-select" name="batch_id" id="batch_id" required>
+                                <option value="">请先选择冰窖</option>
+                                {% for b in batches %}
+                                <option value="{{ b.id }}" {% if record and record.batch_id == b.id %}selected{% endif %}>
+                                    {{ b.entry_date }} - {{ b.ice_count }}块 (剩余{{ b.current_remaining }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text" id="batchInfo"></div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">出窖数量 <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" name="quantity" id="quantity"
+                                       min="1" placeholder="请输入出窖数量" oninput="checkQuantity()">
+                                <span class="input-group-text">块</span>
+                            </div>
+                            <div class="form-text text-danger" id="quantityWarning"></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">出窖日期</label>
+                            <input type="date" class="form-control" name="outbound_date" value="{{ date.today() }}">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">用途 <span class="text-danger">*</span></label>
+                            <select class="form-select" name="purpose" required>
+                                <option value="">请选择用途</option>
+                                {% for p in purposes %}
+                                <option value="{{ p }}">{{ p }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">去向</label>
+                            <input type="text" class="form-control" name="destination" placeholder="如：某餐厅、某医院等">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">经办人</label>
+                            <input type="text" class="form-control" name="handler" value="{{ current_user.username }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" rows="3" placeholder="其他需要说明的信息..."></textarea>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('outbounds') }}" class="btn btn-secondary">取消</a>
+                        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+                            <i class="bi bi-check-circle"></i> 确认出窖
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-warning-subtle">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle text-warning"></i> 注意事项</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0 list-unstyled">
+                    <li class="mb-2">
+                        <i class="bi bi-check2 text-success"></i>
+                        出窖数量不能大于当前剩余量
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check2 text-success"></i>
+                        请如实填写用途和去向
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check2 text-success"></i>
+                        操作后库存自动扣减
+                    </li>
+                    <li>
+                        <i class="bi bi-check2 text-success"></i>
+                        系统自动记录时间和经办人
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadBatches() {
+    var houseId = document.getElementById('ice_house_id').value;
+    var batchSelect = document.getElementById('batch_id');
+    var batchInfo = document.getElementById('batchInfo');
+    batchSelect.innerHTML = '<option value="">加载中...</option>';
+
+    if (!houseId) {
+        batchSelect.innerHTML = '<option value="">请先选择冰窖</option>';
+        batchInfo.textContent = '';
+        return;
+    }
+
+    fetch('{{ url_for("api_batches_by_house", house_id=0) }}'.replace('/0/', '/' + houseId + '/'))
+        .then(response => response.json())
+        .then(data => {
+            if (data.length === 0) {
+                batchSelect.innerHTML = '<option value="">该冰窖无可用批次</option>';
+                batchInfo.textContent = '';
+                return;
+            }
+            batchSelect.innerHTML = '<option value="">请选择批次</option>';
+            data.forEach(function(batch) {
+                var option = document.createElement('option');
+                option.value = batch.id;
+                option.textContent = batch.label;
+                batchSelect.appendChild(option);
+            });
+        });
+
+    batchInfo.textContent = '';
+    checkQuantity();
+}
+
+function checkQuantity() {
+    var quantity = parseInt(document.getElementById('quantity').value) || 0;
+    var batchSelect = document.getElementById('batch_id');
+    var warning = document.getElementById('quantityWarning');
+    var submitBtn = document.getElementById('submitBtn');
+
+    var selectedOption = batchSelect.options[batchSelect.selectedIndex];
+    if (!selectedOption || selectedOption.value === '') {
+        submitBtn.disabled = true;
+        warning.textContent = '';
+        return;
+    }
+
+    var text = selectedOption.textContent;
+    var match = text.match(/剩余(\d+)/);
+    var remaining = match ? parseInt(match[1]) : 0;
+
+    if (quantity > remaining) {
+        warning.textContent = '数量不能大于剩余量 (' + remaining + '块)';
+        submitBtn.disabled = true;
+    } else if (quantity > 0) {
+        warning.textContent = '';
+        submitBtn.disabled = false;
+    } else {
+        submitBtn.disabled = true;
+    }
+}
+
+document.getElementById('batch_id').addEventListener('change', checkQuantity);
+document.getElementById('ice_house_id').addEventListener('change', function() {
+    checkQuantity();
+});
+</script>
+{% endblock %}

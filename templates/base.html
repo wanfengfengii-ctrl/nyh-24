@@ -143,9 +143,34 @@
                             </a>
                         </li>
                         <li class="nav-item w-100">
+                            <a href="{{ url_for('transfers') }}" class="nav-link {% if 'transfer' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-arrow-left-right"></i>
+                                <span class="ms-1 d-none d-sm-inline">调拨管理</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('outbounds') }}" class="nav-link {% if 'outbound' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-box-arrow-up-right"></i>
+                                <span class="ms-1 d-none d-sm-inline">出窖登记</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
                             <a href="{{ url_for('repairs') }}" class="nav-link {% if 'repair' in request.endpoint %}active{% endif %}">
                                 <i class="bi bi-wrench"></i>
                                 <span class="ms-1 d-none d-sm-inline">修缮工单</span>
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider text-white-50 w-100"></li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('inventory_flows') }}" class="nav-link {% if 'inventory_flow' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-journal-text"></i>
+                                <span class="ms-1 d-none d-sm-inline">库存流水</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('loss_comparison') }}" class="nav-link {% if 'loss_comparison' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-bar-chart-line"></i>
+                                <span class="ms-1 d-none d-sm-inline">损耗比对</span>
                             </a>
                         </li>
                         <li><hr class="dropdown-divider text-white-50 w-100"></li>

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}批次追溯 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-diagram-3 text-info"></i> 批次追溯链路</h2>
+    <a href="{{ url_for('batches') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回批次列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">批次信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="text-muted">批次ID</label>
+                    <p class="fw-bold">#{{ batch.id }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">所属冰窖</label>
+                    <p class="fw-bold">{{ batch.ice_house.code }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">入窖日期</label>
+                    <p>{{ batch.entry_date }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">入窖数量</label>
+                    <p class="fw-bold text-primary">{{ batch.ice_count }} 块</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">当前剩余</label>
+                    <p class="fw-bold {% if batch.current_remaining > 0 %}text-success{% else %}text-danger{% endif %}">
+                        {{ batch.current_remaining }} 块
+                    </p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">预计存储期</label>
+                    <p>{{ batch.expected_storage_period }} 天</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">统计概览</h5>
+            </div>
+            <div class="card-body">
+                {% set in_count = namespace(value=0) %}
+                {% set out_count = namespace(value=0) %}
+                {% set melt_count = namespace(value=0) %}
+                {% for flow in flows %}
+                    {% if flow.quantity > 0 %}
+                        {% set in_count.value = in_count.value + flow.quantity %}
+                    {% else %}
+                        {% if flow.flow_type == 'melt_loss' %}
+                            {% set melt_count.value = melt_count.value + flow.quantity|abs %}
+                        {% else %}
+                            {% set out_count.value = out_count.value + flow.quantity|abs %}
+                        {% endif %}
+                    {% endif %}
+                {% endfor %}
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2 d-flex justify-content-between">
+                        <span><i class="bi bi-box-arrow-in-down text-success"></i> 总入库</span>
+                        <strong class="text-success">{{ in_count.value }} 块</strong>
+                    </li>
+                    <li class="mb-2 d-flex justify-content-between">
+                        <span><i class="bi bi-box-arrow-up-right text-primary"></i> 总出库</span>
+                        <strong class="text-primary">{{ out_count.value }} 块</strong>
+                    </li>
+                    <li class="d-flex justify-content-between">
+                        <span><i class="bi bi-droplet text-danger"></i> 总融损</span>
+                        <strong class="text-danger">{{ melt_count.value }} 块</strong>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-signpost-split"></i> 追溯链路</h5>
+            </div>
+            <div class="card-body">
+                {% if trace_chain %}
+                <div class="timeline">
+                    {% for item in trace_chain %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker
+                            {% if item.type == 'origin' %}bg-success
+                            {% elif item.type == 'transfer_in' %}bg-info
+                            {% elif item.type == 'transfer_out' %}bg-warning
+                            {% elif item.type == 'outbound' %}bg-primary
+                            {% elif item.type == 'melt_loss' %}bg-danger
+                            {% else %}bg-secondary
+                            {% endif %}">
+                        </div>
+                        <div class="timeline-content">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="mb-1">
+                                        {% if item.type == 'origin' %}
+                                        <i class="bi bi-box-seam text-success"></i>
+                                        {% elif item.type == 'transfer_in' %}
+                                        <i class="bi bi-arrow-down-left text-info"></i>
+                                        {% elif item.type == 'transfer_out' %}
+                                        <i class="bi bi-arrow-up-right text-warning"></i>
+                                        {% elif item.type == 'outbound' %}
+                                        <i class="bi bi-box-arrow-up-right text-primary"></i>
+                                        {% elif item.type == 'melt_loss' %}
+                                        <i class="bi bi-droplet text-danger"></i>
+                                        {% endif %}
+                                        {{ item.title }}
+                                    </h6>
+                                    <small class="text-muted">{{ item.date }}</small>
+                                </div>
+                                <span class="badge
+                                    {% if item.type == 'origin' or item.type == 'transfer_in' %}bg-success
+                                    {% elif item.type == 'melt_loss' %}bg-danger
+                                    {% else %}bg-primary
+                                    {% endif %}">
+                                    {% if item.type == 'origin' or item.type == 'transfer_in' %}+{% endif %}
+                                    {% if item.type == 'melt_loss' %}-{% endif %}
+                                    {% if item.type == 'outbound' or item.type == 'transfer_out' %}-{% endif %}
+                                    {{ item.quantity }} 块
+                                </span>
+                            </div>
+                            {% if item.house %}
+                            <p class="mb-1 mt-2"><small><strong>冰窖：</strong>{{ item.house }}</small></p>
+                            {% endif %}
+                            {% if item.order_no %}
+                            <p class="mb-1"><small><strong>调拨单：</strong>{{ item.order_no }}</small></p>
+                            {% endif %}
+                            {% if item.purpose %}
+                            <p class="mb-1"><small><strong>用途：</strong>{{ item.purpose }}</small></p>
+                            {% endif %}
+                            {% if item.destination %}
+                            <p class="mb-1"><small><strong>去向：</strong>{{ item.destination }}</small></p>
+                            {% endif %}
+                            {% if item.description %}
+                            <p class="mb-0 text-muted"><small>{{ item.description }}</small></p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-inbox fs-1"></i>
+                    <p class="mt-3">暂无追溯记录</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 5px;
+    bottom: 5px;
+    width: 2px;
+    background-color: #dee2e6;
+}
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+.timeline-item:last-child {
+    margin-bottom: 0;
+}
+.timeline-marker {
+    position: absolute;
+    left: -30px;
+    top: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
+}
+.timeline-content {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+</style>
+{% endblock %}

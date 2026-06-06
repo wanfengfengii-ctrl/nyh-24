@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+
+{% block title %}调拨详情 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-arrow-left-right text-info"></i> 调拨详情</h2>
+    <a href="{{ url_for('transfers') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">调拨信息</h5>
+                <span class="badge
+                    {% if order.status == 'pending' %}bg-warning text-dark
+                    {% elif order.status == 'approved' %}bg-info text-dark
+                    {% elif order.status == 'executing' %}bg-primary
+                    {% elif order.status == 'completed' %}bg-success
+                    {% elif order.status == 'rejected' %}bg-danger
+                    {% endif %}">
+                    {% if order.status == 'pending' %}待审批
+                    {% elif order.status == 'approved' %}待出库
+                    {% elif order.status == 'executing' %}待接收
+                    {% elif order.status == 'completed' %}已完成
+                    {% elif order.status == 'rejected' %}已驳回
+                    {% endif %}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">调拨单号</label>
+                        <p class="fw-bold">{{ order.transfer_no }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">申请日期</label>
+                        <p>{{ order.apply_date }}</p>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">调出冰窖</label>
+                        <p class="fw-bold">{{ order.from_house.code }} - {{ order.from_house.location }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">调入冰窖</label>
+                        <p class="fw-bold">{{ order.to_house.code }} - {{ order.to_house.location }}</p>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">申请人</label>
+                        <p>{{ order.applicant or '-' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">调拨总量</label>
+                        <p class="fw-bold text-primary">{{ order.total_quantity() }} 块</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">调拨原因</label>
+                    <p>{{ order.reason or '无' }}</p>
+                </div>
+
+                {% if order.status != 'pending' %}
+                <hr>
+                <h6 class="text-muted mb-3"><i class="bi bi-clipboard-check"></i> 审批信息</h6>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">审批人</label>
+                        <p>{{ order.approver or '-' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">审批日期</label>
+                        <p>{{ order.approval_date or '-' }}</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">审批意见</label>
+                    <p>{{ order.approval_comment or '无' }}</p>
+                </div>
+                {% endif %}
+
+                {% if order.status in ['executing', 'completed'] %}
+                <hr>
+                <h6 class="text-muted mb-3"><i class="bi bi-box-arrow-up-right"></i> 出库信息</h6>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">执行人</label>
+                        <p>{{ order.executor or '-' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">出库日期</label>
+                        <p>{{ order.execute_date or '-' }}</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if order.status == 'completed' %}
+                <hr>
+                <h6 class="text-muted mb-3"><i class="bi bi-box-arrow-in-down"></i> 接收信息</h6>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">接收人</label>
+                        <p>{{ order.receiver or '-' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">接收日期</label>
+                        <p>{{ order.receive_date or '-' }}</p>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">实收总量</label>
+                        <p class="fw-bold text-success">{{ order.total_received() }} 块</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">途中损耗</label>
+                        <p class="fw-bold text-danger">{{ order.total_quantity() - order.total_received() }} 块</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">接收备注</label>
+                    <p>{{ order.receive_remark or '无' }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 调拨明细</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>批次ID</th>
+                                <th>入窖日期</th>
+                                <th>调拨数量</th>
+                                {% if order.status == 'completed' %}
+                                <th>实收数量</th>
+                                <th>损耗</th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in order.items %}
+                            <tr>
+                                <td>#{{ item.batch.id }}</td>
+                                <td>{{ item.batch.entry_date }}</td>
+                                <td>{{ item.quantity }} 块</td>
+                                {% if order.status == 'completed' %}
+                                <td class="text-success">{{ item.received_quantity }} 块</td>
+                                <td class="text-danger">{{ item.quantity - item.received_quantity }} 块</td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td colspan="2">合计</td>
+                                <td>{{ order.total_quantity() }} 块</td>
+                                {% if order.status == 'completed' %}
+                                <td class="text-success">{{ order.total_received() }} 块</td>
+                                <td class="text-danger">{{ order.total_quantity() - order.total_received() }} 块</td>
+                                {% endif %}
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        {% if order.status == 'pending' %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">审批操作</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">审批意见</label>
+                    <textarea class="form-control" id="approval_comment" rows="3" placeholder="请填写审批意见..."></textarea>
+                </div>
+                <div class="d-flex gap-2">
+                    <form method="post" action="{{ url_for('transfer_approve', order_id=order.id) }}" id="approveForm">
+                        <input type="hidden" name="approval_comment" id="approve_comment">
+                        <button type="button" class="btn btn-success" onclick="submitApprove()">
+                            <i class="bi bi-check-circle"></i> 通过审批
+                        </button>
+                    </form>
+                    <form method="post" action="{{ url_for('transfer_reject', order_id=order.id) }}" id="rejectForm">
+                        <input type="hidden" name="approval_comment" id="reject_comment">
+                        <button type="button" class="btn btn-danger" onclick="submitReject()">
+                            <i class="bi bi-x-circle"></i> 驳回
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if order.status == 'approved' %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">执行出库</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('transfer_execute', order_id=order.id) }}">
+                    <div class="mb-3">
+                        <label class="form-label">执行人</label>
+                        <input type="text" class="form-control" name="executor" value="{{ current_user.username }}">
+                    </div>
+                    <button type="submit" class="btn btn-primary" onclick="return confirm('确定执行出库？操作不可撤销。')">
+                        <i class="bi bi-box-arrow-up-right"></i> 确认出库
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if order.status == 'executing' %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">接收确认</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">请前往接收确认页面进行实收数量登记。</p>
+                <a href="{{ url_for('transfer_receive', order_id=order.id) }}" class="btn btn-success">
+                    <i class="bi bi-box-arrow-in-down"></i> 去接收确认
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-diagram-3"></i> 调拨流程</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-column gap-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                            <i class="bi bi-file-earmark-plus"></i>
+                        </div>
+                        <div class="ms-3">
+                            <p class="mb-0 fw-bold">提交申请</p>
+                            <small class="text-muted">{{ order.apply_date }} · {{ order.applicant or '未知' }}</small>
+                        </div>
+                    </div>
+                    <div class="ms-4" style="border-left: 2px solid #dee2e6; height: 20px;"></div>
+
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle
+                            {% if order.status in ['approved', 'executing', 'completed'] %}bg-success
+                            {% elif order.status == 'rejected' %}bg-danger
+                            {% else %}bg-secondary
+                            {% endif %} text-white d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                            <i class="bi bi-check2-all"></i>
+                        </div>
+                        <div class="ms-3">
+                            <p class="mb-0 fw-bold">
+                                {% if order.status == 'rejected' %}审批驳回
+                                {% elif order.status in ['approved', 'executing', 'completed'] %}审批通过
+                                {% else %}待审批
+                                {% endif %}
+                            </p>
+                            <small class="text-muted">
+                                {% if order.approval_date %}{{ order.approval_date }} · {{ order.approver }}{% else %}-{% endif %}
+                            </small>
+                        </div>
+                    </div>
+
+                    {% if order.status != 'rejected' %}
+                    <div class="ms-4" style="border-left: 2px solid #dee2e6; height: 20px;"></div>
+
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle
+                            {% if order.status in ['executing', 'completed'] %}bg-success
+                            {% else %}bg-secondary
+                            {% endif %} text-white d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </div>
+                        <div class="ms-3">
+                            <p class="mb-0 fw-bold">
+                                {% if order.status in ['executing', 'completed'] %}已出库
+                                {% else %}待出库
+                                {% endif %}
+                            </p>
+                            <small class="text-muted">
+                                {% if order.execute_date %}{{ order.execute_date }} · {{ order.executor }}{% else %}-{% endif %}
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="ms-4" style="border-left: 2px solid #dee2e6; height: 20px;"></div>
+
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle
+                            {% if order.status == 'completed' %}bg-success
+                            {% else %}bg-secondary
+                            {% endif %} text-white d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                            <i class="bi bi-box-arrow-in-down"></i>
+                        </div>
+                        <div class="ms-3">
+                            <p class="mb-0 fw-bold">
+                                {% if order.status == 'completed' %}已接收
+                                {% else %}待接收
+                                {% endif %}
+                            </p>
+                            <small class="text-muted">
+                                {% if order.receive_date %}{{ order.receive_date }} · {{ order.receiver }}{% else %}-{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function submitApprove() {
+    document.getElementById('approve_comment').value = document.getElementById('approval_comment').value;
+    if (confirm('确定通过此调拨申请吗？')) {
+        document.getElementById('approveForm').submit();
+    }
+}
+function submitReject() {
+    var comment = document.getElementById('approval_comment').value;
+    if (!comment.trim()) {
+        alert('驳回请填写审批意见');
+        return;
+    }
+    document.getElementById('reject_comment').value = comment;
+    if (confirm('确定驳回此调拨申请吗？')) {
+        document.getElementById('rejectForm').submit();
+    }
+}
+</script>
+{% endblock %}

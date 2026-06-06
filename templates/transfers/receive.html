@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}接收确认 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-box-arrow-in-down text-success"></i> 接收确认</h2>
+    <a href="{{ url_for('transfer_detail', order_id=order.id) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回详情
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">调拨信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="text-muted">调拨单号</label>
+                        <p class="fw-bold">{{ order.transfer_no }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">调出冰窖</label>
+                        <p class="fw-bold">{{ order.from_house.code }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">调入冰窖</label>
+                        <p class="fw-bold">{{ order.to_house.code }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">调拨总量</label>
+                        <p class="fw-bold text-primary">{{ order.total_quantity() }} 块</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 实收明细</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% for item in order.items %}
+                    <div class="card mb-3 border-primary">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <small class="text-muted">批次</small>
+                                    <p class="mb-0 fw-bold">
+                                        #{{ item.batch.id }} · {{ item.batch.entry_date }}
+                                    </p>
+                                </div>
+                                <div class="col-md-3">
+                                    <small class="text-muted">调拨数量</small>
+                                    <p class="mb-0 fw-bold text-primary">{{ item.quantity }} 块</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small">实收数量 <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" name="received_quantities[]"
+                                               min="0" max="{{ item.quantity }}" value="{{ item.quantity }}"
+                                               oninput="calcLoss(this, {{ item.quantity }})">
+                                        <span class="input-group-text">块</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-1 text-center">
+                                    <small class="text-muted">损耗</small>
+                                    <p class="mb-0 fw-bold text-danger loss-display">0 块</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    <hr>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">接收人</label>
+                            <input type="text" class="form-control" name="receiver" value="{{ current_user.username }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">接收日期</label>
+                            <input type="date" class="form-control" value="{{ date.today() }}" disabled>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">接收备注</label>
+                        <textarea class="form-control" name="receive_remark" rows="3" placeholder="如有异常情况请备注说明..."></textarea>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('transfer_detail', order_id=order.id) }}" class="btn btn-secondary">取消</a>
+                        <button type="submit" class="btn btn-success" onclick="return confirm('确认接收？此操作将更新库存。')">
+                            <i class="bi bi-check-circle"></i> 确认接收
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-warning-subtle">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle text-warning"></i> 注意事项</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li class="mb-2">请认真清点实际到货数量</li>
+                    <li class="mb-2">途中损耗将自动计入融损记录</li>
+                    <li class="mb-2">实收数量不能大于调拨数量</li>
+                    <li>接收确认后库存自动更新，不可撤销</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header bg-info-subtle">
+                <h5 class="mb-0"><i class="bi bi-info-circle text-info"></i> 统计汇总</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">应到总数：</span>
+                    <span class="fw-bold" id="totalExpected">{{ order.total_quantity() }} 块</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">实收总数：</span>
+                    <span class="fw-bold text-success" id="totalReceived">0 块</span>
+                </div>
+                <hr>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">损耗总数：</span>
+                    <span class="fw-bold text-danger" id="totalLoss">0 块</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function calcLoss(input, expected) {
+    var received = parseInt(input.value) || 0;
+    var loss = Math.max(0, expected - received);
+    var lossDisplay = input.closest('.card').querySelector('.loss-display');
+    lossDisplay.textContent = loss + ' 块';
+    updateTotals();
+}
+
+function updateTotals() {
+    var inputs = document.querySelectorAll('input[name="received_quantities[]"]');
+    var totalReceived = 0;
+    var totalExpected = 0;
+    inputs.forEach(function(input) {
+        var received = parseInt(input.value) || 0;
+        totalReceived += received;
+        var card = input.closest('.card');
+        var max = parseInt(input.getAttribute('max'));
+        totalExpected += max;
+    });
+    document.getElementById('totalReceived').textContent = totalReceived + ' 块';
+    document.getElementById('totalLoss').textContent = (totalExpected - totalReceived) + ' 块';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    updateTotals();
+});
+</script>
+{% endblock %}
