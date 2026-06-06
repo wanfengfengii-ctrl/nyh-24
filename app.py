@@ -14,7 +14,8 @@ from flask_login import (
 from models import (
     db, User, IceHouse, IceBatch, Inspection, MeltLoss, Repair,
     RiskAlert, RectificationTask, ReviewRecord, ApprovalRequest, Notification,
-    TransferOrder, TransferItem, OutboundRecord, InventoryFlow
+    TransferOrder, TransferItem, OutboundRecord, InventoryFlow,
+    InventoryForecast, InventoryAlert, TransferRecommendation
 )
 
 
@@ -2025,6 +2026,754 @@ def create_app():
                                houses=houses, results=results,
                                ice_house_id=ice_house_id,
                                start_date=start_date_str, end_date=end_date_str)
+
+    def generate_rec_no():
+        prefix = 'TJ' + datetime.now().strftime('%Y%m%d')
+        count = TransferRecommendation.query.filter(
+            TransferRecommendation.rec_no.like(prefix + '%')
+        ).count()
+        return f'{prefix}{count + 1:03d}'
+
+    def calculate_house_stock(house_id):
+        batches = IceBatch.query.filter_by(ice_house_id=house_id).all()
+        return sum(b.current_remaining for b in batches)
+
+    def calculate_daily_melt_rate(house_id, days=30):
+        from datetime import timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+
+        losses = MeltLoss.query.filter_by(ice_house_id=house_id).filter(
+            MeltLoss.record_date.between(start_date, end_date)
+        ).all()
+
+        total_loss = sum(l.loss_amount for l in losses)
+        actual_days = (end_date - start_date).days or 1
+        return total_loss / actual_days if actual_days > 0 else 0
+
+    def calculate_daily_outbound_rate(house_id, days=30):
+        from datetime import timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+
+        outbounds = OutboundRecord.query.filter_by(ice_house_id=house_id).filter(
+            OutboundRecord.outbound_date.between(start_date, end_date)
+        ).all()
+
+        total_out = sum(o.quantity for o in outbounds)
+        actual_days = (end_date - start_date).days or 1
+        return total_out / actual_days if actual_days > 0 else 0
+
+    def calculate_avg_environment(house_id, days=30):
+        from datetime import timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+
+        inspections = Inspection.query.filter_by(ice_house_id=house_id).filter(
+            Inspection.inspection_date.between(start_date, end_date)
+        ).all()
+
+        if not inspections:
+            return None, None
+
+        avg_temp = sum(i.temperature for i in inspections) / len(inspections)
+        avg_humidity = sum(i.humidity for i in inspections) / len(inspections)
+        return avg_temp, avg_humidity
+
+    def calculate_available_days(house_id):
+        current_stock = calculate_house_stock(house_id)
+        daily_melt = calculate_daily_melt_rate(house_id)
+        daily_outbound = calculate_daily_outbound_rate(house_id)
+        daily_consumption = daily_melt + daily_outbound
+
+        if daily_consumption <= 0:
+            return float('inf'), daily_melt, daily_outbound, daily_consumption
+
+        return current_stock / daily_consumption, daily_melt, daily_outbound, daily_consumption
+
+    def forecast_inventory(house_id, days_ahead):
+        current_stock = calculate_house_stock(house_id)
+        daily_melt = calculate_daily_melt_rate(house_id)
+        daily_outbound = calculate_daily_outbound_rate(house_id)
+        daily_consumption = daily_melt + daily_outbound
+
+        avg_temp, avg_humidity = calculate_avg_environment(house_id)
+
+        temp_factor = 1.0
+        if avg_temp is not None:
+            if avg_temp > 2:
+                temp_factor = 1.2
+            elif avg_temp < -2:
+                temp_factor = 0.8
+
+        adjusted_daily = daily_consumption * temp_factor
+        forecasted = max(0, current_stock - adjusted_daily * days_ahead)
+
+        return int(forecasted), daily_melt, daily_outbound, daily_consumption, avg_temp, avg_humidity
+
+    def generate_inventory_forecast(house_id):
+        house = IceHouse.query.get(house_id)
+        if not house:
+            return None
+
+        current_stock = calculate_house_stock(house_id)
+        available_days, daily_melt, daily_outbound, daily_consumption = calculate_available_days(house_id)
+        forecast_7d, _, _, _, avg_temp, avg_humidity = forecast_inventory(house_id, 7)
+        forecast_30d, _, _, _, _, _ = forecast_inventory(house_id, 30)
+
+        confidence = 0.7
+        if daily_melt > 0 and daily_outbound > 0:
+            confidence = 0.85
+        elif daily_melt > 0 or daily_outbound > 0:
+            confidence = 0.75
+
+        forecast = InventoryForecast(
+            ice_house_id=house_id,
+            forecast_date=date.today(),
+            current_total=current_stock,
+            daily_melt_rate=round(daily_melt, 2),
+            daily_outbound_rate=round(daily_outbound, 2),
+            daily_consumption_rate=round(daily_consumption, 2),
+            available_days=round(available_days, 1) if available_days != float('inf') else 999,
+            forecast_7d=forecast_7d,
+            forecast_30d=forecast_30d,
+            avg_temperature=round(avg_temp, 2) if avg_temp else None,
+            avg_humidity=round(avg_humidity, 2) if avg_humidity else None,
+            method='hybrid',
+            confidence=confidence
+        )
+        db.session.add(forecast)
+        return forecast
+
+    def check_inventory_alerts(house_id):
+        house = IceHouse.query.get(house_id)
+        if not house:
+            return []
+
+        alerts = []
+        current_stock = calculate_house_stock(house_id)
+        available_days, daily_melt, daily_outbound, daily_consumption = calculate_available_days(house_id)
+
+        shortage_threshold_3 = 3
+        shortage_threshold_7 = 7
+        surplus_threshold_days = 90
+
+        if available_days <= shortage_threshold_3 and available_days != float('inf'):
+            existing = InventoryAlert.query.filter_by(
+                ice_house_id=house_id,
+                alert_type='critical_shortage',
+                status='active'
+            ).first()
+            if not existing:
+                alert = InventoryAlert(
+                    ice_house_id=house_id,
+                    alert_type='critical_shortage',
+                    severity='high',
+                    title=f'严重缺冰预警：{house.code}',
+                    description=f'冰窖 {house.code} 当前库存 {current_stock} 块，按当前消耗速度预计仅可使用 {round(available_days, 1)} 天，请尽快补充库存。',
+                    current_stock=current_stock,
+                    threshold=shortage_threshold_3,
+                    available_days=round(available_days, 1),
+                    source_type='forecast',
+                    status='active'
+                )
+                db.session.add(alert)
+                alerts.append(alert)
+
+                admin = User.query.filter_by(username='admin').first()
+                if admin:
+                    create_notification(
+                        admin.id, 'inventory',
+                        f'严重缺冰预警：{house.code}',
+                        f'冰窖 {house.code} 库存仅可用 {round(available_days, 1)} 天，请及时处理',
+                        'inventory_alert', alert.id
+                    )
+
+        elif available_days <= shortage_threshold_7 and available_days != float('inf'):
+            existing = InventoryAlert.query.filter_by(
+                ice_house_id=house_id,
+                alert_type='shortage',
+                status='active'
+            ).first()
+            if not existing:
+                alert = InventoryAlert(
+                    ice_house_id=house_id,
+                    alert_type='shortage',
+                    severity='medium',
+                    title=f'缺冰预警：{house.code}',
+                    description=f'冰窖 {house.code} 当前库存 {current_stock} 块，按当前消耗速度预计可使用 {round(available_days, 1)} 天，建议提前安排补货。',
+                    current_stock=current_stock,
+                    threshold=shortage_threshold_7,
+                    available_days=round(available_days, 1),
+                    source_type='forecast',
+                    status='active'
+                )
+                db.session.add(alert)
+                alerts.append(alert)
+
+        if available_days >= surplus_threshold_days or available_days == float('inf'):
+            if current_stock > house.capacity * 0.8:
+                existing = InventoryAlert.query.filter_by(
+                    ice_house_id=house_id,
+                    alert_type='surplus',
+                    status='active'
+                ).first()
+                if not existing:
+                    alert = InventoryAlert(
+                        ice_house_id=house_id,
+                        alert_type='surplus',
+                        severity='low',
+                        title=f'压库存预警：{house.code}',
+                        description=f'冰窖 {house.code} 当前库存 {current_stock} 块，容量占比 {round(current_stock/house.capacity*100, 1)}%，库存积压风险较高，建议考虑调拨或促销。',
+                        current_stock=current_stock,
+                        threshold=int(house.capacity * 0.8),
+                        available_days=round(available_days, 1) if available_days != float('inf') else 999,
+                        source_type='forecast',
+                        status='active'
+                    )
+                    db.session.add(alert)
+                    alerts.append(alert)
+
+        return alerts
+
+    def generate_transfer_recommendations():
+        houses = IceHouse.query.filter_by(is_open=True).all()
+        recommendations = []
+
+        house_stats = []
+        for house in houses:
+            stock = calculate_house_stock(house.id)
+            available_days, daily_melt, daily_outbound, daily_consumption = calculate_available_days(house.id)
+            house_stats.append({
+                'house': house,
+                'stock': stock,
+                'available_days': available_days,
+                'daily_melt': daily_melt,
+                'daily_outbound': daily_outbound,
+                'daily_consumption': daily_consumption,
+                'capacity_usage': stock / house.capacity if house.capacity > 0 else 0
+            })
+
+        shortage_houses = [
+            s for s in house_stats
+            if s['available_days'] < 14 and s['available_days'] != float('inf')
+        ]
+        surplus_houses = [
+            s for s in house_stats
+            if s['available_days'] > 60 or s['available_days'] == float('inf')
+        ]
+
+        shortage_houses.sort(key=lambda x: x['available_days'])
+        surplus_houses.sort(key=lambda x: x['available_days'], reverse=True)
+
+        for shortage in shortage_houses:
+            for surplus in surplus_houses:
+                if surplus['house'].id == shortage['house'].id:
+                    continue
+
+                if surplus['stock'] <= 0:
+                    continue
+
+                target_days = 30
+                needed_qty = int(shortage['daily_consumption'] * (target_days - shortage['available_days']))
+                if needed_qty <= 0:
+                    continue
+
+                max_transfer = int(surplus['stock'] * 0.5)
+                transfer_qty = min(needed_qty, max_transfer)
+                transfer_qty = max(transfer_qty, 10)
+
+                if transfer_qty < 10:
+                    continue
+
+                remaining_after = surplus['stock'] - transfer_qty
+                surplus_days_after = remaining_after / surplus['daily_consumption'] if surplus['daily_consumption'] > 0 else float('inf')
+                if surplus_days_after < 30 and surplus_days_after != float('inf'):
+                    continue
+
+                existing = TransferRecommendation.query.filter(
+                    TransferRecommendation.from_house_id == surplus['house'].id,
+                    TransferRecommendation.to_house_id == shortage['house'].id,
+                    TransferRecommendation.status.in_(['pending', 'approved', 'executing'])
+                ).first()
+                if existing:
+                    continue
+
+                priority = 'medium'
+                confidence = 0.6
+                if shortage['available_days'] < 3:
+                    priority = 'urgent'
+                    confidence = 0.9
+                elif shortage['available_days'] < 7:
+                    priority = 'high'
+                    confidence = 0.8
+
+                reason_parts = []
+                reason_parts.append(f"调入冰窖 {shortage['house'].code} 库存紧张，预计仅可使用 {round(shortage['available_days'], 1)} 天")
+                reason_parts.append(f"调出冰窖 {surplus['house'].code} 库存充足，预计可使用 {round(surplus['available_days'], 1) if surplus['available_days'] != float('inf') else '999+'} 天")
+
+                reason_details_parts = []
+                reason_details_parts.append(f"【调入方分析】")
+                reason_details_parts.append(f"- 当前库存：{shortage['stock']} 块")
+                reason_details_parts.append(f"- 日均融损：{round(shortage['daily_melt'], 2)} 块")
+                reason_details_parts.append(f"- 日均出窖：{round(shortage['daily_outbound'], 2)} 块")
+                reason_details_parts.append(f"- 日均总消耗：{round(shortage['daily_consumption'], 2)} 块")
+                reason_details_parts.append(f"- 预计可用天数：{round(shortage['available_days'], 1)} 天")
+                reason_details_parts.append(f"")
+                reason_details_parts.append(f"【调出方分析】")
+                reason_details_parts.append(f"- 当前库存：{surplus['stock']} 块")
+                reason_details_parts.append(f"- 日均融损：{round(surplus['daily_melt'], 2)} 块")
+                reason_details_parts.append(f"- 日均出窖：{round(surplus['daily_outbound'], 2)} 块")
+                reason_details_parts.append(f"- 日均总消耗：{round(surplus['daily_consumption'], 2)} 块")
+                reason_details_parts.append(f"- 预计可用天数：{round(surplus['available_days'], 1) if surplus['available_days'] != float('inf') else '999+'} 天")
+                reason_details_parts.append(f"- 容量利用率：{round(surplus['capacity_usage'] * 100, 1)}%")
+                reason_details_parts.append(f"")
+                reason_details_parts.append(f"【推荐方案】")
+                reason_details_parts.append(f"- 建议调拨数量：{transfer_qty} 块")
+                reason_details_parts.append(f"- 调拨后调入方预计可用：约 {round((shortage['stock'] + transfer_qty) / shortage['daily_consumption'], 1) if shortage['daily_consumption'] > 0 else '999+'} 天")
+                reason_details_parts.append(f"- 调拨后调出方预计可用：约 {round(surplus_days_after, 1) if surplus_days_after != float('inf') else '999+'} 天")
+
+                rec = TransferRecommendation(
+                    rec_no=generate_rec_no(),
+                    from_house_id=surplus['house'].id,
+                    to_house_id=shortage['house'].id,
+                    recommended_quantity=transfer_qty,
+                    reason='；'.join(reason_parts),
+                    reason_details='\n'.join(reason_details_parts),
+                    priority=priority,
+                    status='pending',
+                    confidence_score=confidence,
+                    shortage_days=round(shortage['available_days'], 1),
+                    surplus_days=round(surplus['available_days'], 1) if surplus['available_days'] != float('inf') else 999,
+                    from_house_available_days=round(surplus['available_days'], 1) if surplus['available_days'] != float('inf') else 999,
+                    to_house_available_days=round(shortage['available_days'], 1),
+                    applicant='system',
+                    apply_date=date.today()
+                )
+                db.session.add(rec)
+                recommendations.append(rec)
+
+                admin = User.query.filter_by(username='admin').first()
+                if admin:
+                    create_notification(
+                        admin.id, 'recommendation',
+                        f'新调拨推荐：{rec.rec_no}',
+                        f'{surplus["house"].code} → {shortage["house"].code}，推荐调拨 {transfer_qty} 块，优先级：{rec.priority_label()}',
+                        'recommendation', rec.id
+                    )
+
+        return recommendations
+
+    def calculate_recommendation_stats():
+        total = TransferRecommendation.query.count()
+        approved = TransferRecommendation.query.filter_by(status='approved').count()
+        completed = TransferRecommendation.query.filter_by(status='completed').count()
+        rejected = TransferRecommendation.query.filter_by(status='rejected').count()
+        hits = TransferRecommendation.query.filter_by(is_hit=True).count()
+        evaluated = TransferRecommendation.query.filter(TransferRecommendation.is_hit.isnot(None)).count()
+
+        hit_rate = (hits / evaluated * 100) if evaluated > 0 else 0
+        approval_rate = (approved / total * 100) if total > 0 else 0
+
+        return {
+            'total': total,
+            'approved': approved,
+            'completed': completed,
+            'rejected': rejected,
+            'hits': hits,
+            'evaluated': evaluated,
+            'hit_rate': round(hit_rate, 2),
+            'approval_rate': round(approval_rate, 2),
+        }
+
+    @app.route('/inventory-forecast')
+    @login_required
+    def inventory_forecast():
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        forecasts = []
+
+        for house in houses:
+            stock = calculate_house_stock(house.id)
+            available_days, daily_melt, daily_outbound, daily_consumption = calculate_available_days(house.id)
+            forecast_7d, _, _, _, avg_temp, avg_humidity = forecast_inventory(house.id, 7)
+            forecast_30d, _, _, _, _, _ = forecast_inventory(house.id, 30)
+
+            status = 'normal'
+            status_label = '正常'
+            if available_days <= 3 and available_days != float('inf'):
+                status = 'critical'
+                status_label = '严重不足'
+            elif available_days <= 7 and available_days != float('inf'):
+                status = 'warning'
+                status_label = '库存偏低'
+            elif available_days >= 90 or available_days == float('inf'):
+                if stock > house.capacity * 0.8:
+                    status = 'surplus'
+                    status_label = '库存积压'
+
+            forecasts.append({
+                'house': house,
+                'stock': stock,
+                'capacity_usage': round(stock / house.capacity * 100, 1) if house.capacity > 0 else 0,
+                'available_days': round(available_days, 1) if available_days != float('inf') else 999,
+                'available_days_display': round(available_days, 1) if available_days != float('inf') else '999+',
+                'daily_melt': round(daily_melt, 2),
+                'daily_outbound': round(daily_outbound, 2),
+                'daily_consumption': round(daily_consumption, 2),
+                'forecast_7d': forecast_7d,
+                'forecast_30d': forecast_30d,
+                'avg_temp': round(avg_temp, 2) if avg_temp else '-',
+                'avg_humidity': round(avg_humidity, 2) if avg_humidity else '-',
+                'status': status,
+                'status_label': status_label,
+            })
+
+        stats = {
+            'total_houses': len(houses),
+            'total_stock': sum(f['stock'] for f in forecasts),
+            'critical_count': sum(1 for f in forecasts if f['status'] == 'critical'),
+            'warning_count': sum(1 for f in forecasts if f['status'] == 'warning'),
+            'surplus_count': sum(1 for f in forecasts if f['status'] == 'surplus'),
+            'normal_count': sum(1 for f in forecasts if f['status'] == 'normal'),
+        }
+
+        return render_template('inventory_forecast/index.html',
+                               forecasts=forecasts, stats=stats, houses=houses)
+
+    @app.route('/inventory-forecast/refresh', methods=['POST'])
+    @login_required
+    def inventory_forecast_refresh():
+        houses = IceHouse.query.all()
+        forecast_count = 0
+        alert_count = 0
+
+        for house in houses:
+            generate_inventory_forecast(house.id)
+            alerts = check_inventory_alerts(house.id)
+            alert_count += len(alerts)
+            forecast_count += 1
+
+        recs = generate_transfer_recommendations()
+        db.session.commit()
+
+        flash(f'已刷新 {forecast_count} 个冰窖的库存预测，生成 {alert_count} 个库存预警，{len(recs)} 条调拨推荐', 'success')
+        return redirect(url_for('inventory_forecast'))
+
+    @app.route('/inventory-alerts')
+    @login_required
+    def inventory_alerts():
+        status = request.args.get('status', 'active')
+        alert_type = request.args.get('alert_type', '')
+        ice_house_id = request.args.get('ice_house_id', type=int)
+
+        query = InventoryAlert.query
+        if status:
+            query = query.filter_by(status=status)
+        if alert_type:
+            query = query.filter_by(alert_type=alert_type)
+        if ice_house_id:
+            query = query.filter_by(ice_house_id=ice_house_id)
+
+        alerts = query.order_by(InventoryAlert.created_at.desc()).all()
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+
+        return render_template('inventory_alerts/list.html',
+                               alerts=alerts, houses=houses,
+                               status=status, alert_type=alert_type,
+                               ice_house_id=ice_house_id)
+
+    @app.route('/inventory-alerts/<int:alert_id>/resolve', methods=['POST'])
+    @login_required
+    def inventory_alert_resolve(alert_id):
+        alert = InventoryAlert.query.get_or_404(alert_id)
+        note = request.form.get('resolve_note', '').strip()
+
+        alert.status = 'resolved'
+        alert.resolved_at = datetime.utcnow()
+        alert.resolved_by = current_user.username
+        alert.resolve_note = note
+        db.session.commit()
+
+        flash('库存预警已解除', 'success')
+        return redirect(url_for('inventory_alerts'))
+
+    @app.route('/transfer-recommendations')
+    @login_required
+    def transfer_recommendations():
+        status = request.args.get('status', '')
+        priority = request.args.get('priority', '')
+        ice_house_id = request.args.get('ice_house_id', type=int)
+
+        query = TransferRecommendation.query
+        if status:
+            query = query.filter_by(status=status)
+        if priority:
+            query = query.filter_by(priority=priority)
+        if ice_house_id:
+            query = query.filter(
+                (TransferRecommendation.from_house_id == ice_house_id) |
+                (TransferRecommendation.to_house_id == ice_house_id)
+            )
+
+        recs = query.order_by(
+            db.case(
+                (TransferRecommendation.priority == 'urgent', 0),
+                (TransferRecommendation.priority == 'high', 1),
+                (TransferRecommendation.priority == 'medium', 2),
+                (TransferRecommendation.priority == 'low', 3),
+            ),
+            TransferRecommendation.created_at.desc()
+        ).all()
+
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        stats = calculate_recommendation_stats()
+
+        return render_template('transfer_recommendations/list.html',
+                               recommendations=recs, houses=houses,
+                               stats=stats, status=status,
+                               priority=priority, ice_house_id=ice_house_id)
+
+    @app.route('/transfer-recommendations/<int:rec_id>')
+    @login_required
+    def transfer_recommendation_detail(rec_id):
+        rec = TransferRecommendation.query.get_or_404(rec_id)
+        return render_template('transfer_recommendations/detail.html', rec=rec)
+
+    @app.route('/transfer-recommendations/generate', methods=['POST'])
+    @login_required
+    def transfer_recommendations_generate():
+        houses = IceHouse.query.all()
+        for house in houses:
+            check_inventory_alerts(house.id)
+
+        recs = generate_transfer_recommendations()
+        db.session.commit()
+
+        flash(f'已生成 {len(recs)} 条新的调拨推荐', 'success')
+        return redirect(url_for('transfer_recommendations'))
+
+    @app.route('/transfer-recommendations/<int:rec_id>/approve', methods=['POST'])
+    @login_required
+    def transfer_recommendation_approve(rec_id):
+        rec = TransferRecommendation.query.get_or_404(rec_id)
+        if rec.status != 'pending':
+            flash('该推荐已处理', 'warning')
+            return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+        comment = request.form.get('approval_comment', '').strip()
+
+        rec.status = 'approved'
+        rec.approver = current_user.username
+        rec.approval_date = date.today()
+        rec.approval_comment = comment
+
+        create_notification(
+            None, 'recommendation',
+            f'调拨推荐已批准：{rec.rec_no}',
+            f'{rec.from_house.code} → {rec.to_house.code}，{rec.recommended_quantity} 块冰',
+            'recommendation', rec.id
+        )
+
+        db.session.commit()
+        flash('调拨推荐已批准', 'success')
+        return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+    @app.route('/transfer-recommendations/<int:rec_id>/reject', methods=['POST'])
+    @login_required
+    def transfer_recommendation_reject(rec_id):
+        rec = TransferRecommendation.query.get_or_404(rec_id)
+        if rec.status != 'pending':
+            flash('该推荐已处理', 'warning')
+            return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+        comment = request.form.get('approval_comment', '').strip()
+        if not comment:
+            flash('请填写驳回原因', 'danger')
+            return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+        rec.status = 'rejected'
+        rec.approver = current_user.username
+        rec.approval_date = date.today()
+        rec.approval_comment = comment
+        rec.is_hit = False
+        rec.hit_score = 0
+
+        create_notification(
+            None, 'recommendation',
+            f'调拨推荐已驳回：{rec.rec_no}',
+            f'驳回原因：{comment}',
+            'recommendation', rec.id
+        )
+
+        db.session.commit()
+        flash('调拨推荐已驳回', 'info')
+        return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+    @app.route('/transfer-recommendations/<int:rec_id>/execute', methods=['GET', 'POST'])
+    @login_required
+    def transfer_recommendation_execute(rec_id):
+        rec = TransferRecommendation.query.get_or_404(rec_id)
+
+        if request.method == 'POST':
+            if rec.status not in ['approved', 'pending']:
+                flash('该推荐状态不允许执行', 'danger')
+                return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+            from_house_id = rec.from_house_id
+            to_house_id = rec.to_house_id
+            quantity = request.form.get('actual_quantity', type=int) or rec.recommended_quantity
+            executor = request.form.get('executor', '').strip() or current_user.username
+            remark = request.form.get('execute_remark', '').strip()
+
+            if quantity <= 0:
+                flash('调拨数量必须大于 0', 'danger')
+                return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+            batches_from = IceBatch.query.filter_by(ice_house_id=from_house_id).filter(
+                IceBatch.current_remaining > 0
+            ).order_by(IceBatch.entry_date.asc()).all()
+
+            total_available = sum(b.current_remaining for b in batches_from)
+            if quantity > total_available:
+                flash(f'调出冰窖库存不足，当前可用 {total_available} 块', 'danger')
+                return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+            order = TransferOrder(
+                transfer_no=generate_transfer_no(),
+                from_house_id=from_house_id,
+                to_house_id=to_house_id,
+                reason=remark or f'根据推荐 {rec.rec_no} 执行调拨',
+                applicant=executor,
+                apply_date=date.today(),
+                status='approved',
+                approver=current_user.username,
+                approval_date=date.today(),
+                approval_comment='来自智能推荐调拨',
+                created_by=current_user.id
+            )
+            db.session.add(order)
+            db.session.flush()
+
+            remaining_qty = quantity
+            for batch in batches_from:
+                if remaining_qty <= 0:
+                    break
+                transfer_qty = min(batch.current_remaining, remaining_qty)
+                item = TransferItem(
+                    transfer_order_id=order.id,
+                    batch_id=batch.id,
+                    quantity=transfer_qty
+                )
+                db.session.add(item)
+                remaining_qty -= transfer_qty
+
+            rec.status = 'executing'
+            rec.executor = executor
+            rec.execute_date = date.today()
+            rec.actual_quantity = quantity
+            rec.execute_remark = remark
+            rec.transfer_order_id = order.id
+
+            create_notification(
+                None, 'recommendation',
+                f'调拨推荐已执行：{rec.rec_no}',
+                f'已生成调拨单 {order.transfer_no}，{quantity} 块冰',
+                'recommendation', rec.id
+            )
+
+            db.session.commit()
+            flash(f'调拨执行成功，已生成调拨单 {order.transfer_no}', 'success')
+            return redirect(url_for('transfer_detail', order_id=order.id))
+
+        return render_template('transfer_recommendations/execute.html', rec=rec)
+
+    @app.route('/transfer-recommendations/<int:rec_id>/complete', methods=['POST'])
+    @login_required
+    def transfer_recommendation_complete(rec_id):
+        rec = TransferRecommendation.query.get_or_404(rec_id)
+        if rec.status != 'executing':
+            flash('该推荐未在执行中', 'warning')
+            return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+        actual_qty = request.form.get('actual_quantity', type=int) or rec.actual_quantity
+        is_hit = request.form.get('is_hit') == 'on'
+
+        rec.status = 'completed'
+        rec.is_hit = is_hit
+
+        if rec.recommended_quantity > 0 and actual_qty > 0:
+            hit_ratio = min(actual_qty, rec.recommended_quantity) / max(actual_qty, rec.recommended_quantity)
+            rec.hit_score = round(hit_ratio * 100, 2)
+        else:
+            rec.hit_score = 0
+
+        db.session.commit()
+        flash('推荐执行结果已记录', 'success')
+        return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+    @app.route('/transfer-recommendations/<int:rec_id>/cancel', methods=['POST'])
+    @login_required
+    def transfer_recommendation_cancel(rec_id):
+        rec = TransferRecommendation.query.get_or_404(rec_id)
+        if rec.status not in ['pending', 'approved']:
+            flash('该推荐状态不允许取消', 'danger')
+            return redirect(url_for('transfer_recommendation_detail', rec_id=rec_id))
+
+        rec.status = 'cancelled'
+        rec.is_hit = False
+        rec.hit_score = 0
+        db.session.commit()
+
+        flash('调拨推荐已取消', 'info')
+        return redirect(url_for('transfer_recommendations'))
+
+    @app.route('/recommendation-stats')
+    @login_required
+    def recommendation_stats():
+        stats = calculate_recommendation_stats()
+
+        from datetime import timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=30)
+
+        recent_recs = TransferRecommendation.query.filter(
+            TransferRecommendation.created_at >= start_date
+        ).order_by(TransferRecommendation.created_at.desc()).all()
+
+        monthly_data = []
+        for i in range(6):
+            month_end = end_date - timedelta(days=i * 30)
+            month_start = month_end - timedelta(days=30)
+            month_recs = TransferRecommendation.query.filter(
+                TransferRecommendation.created_at.between(month_start, month_end)
+            ).all()
+            month_hits = sum(1 for r in month_recs if r.is_hit)
+            month_evaluated = sum(1 for r in month_recs if r.is_hit is not None)
+            monthly_data.append({
+                'month': month_end.strftime('%Y-%m'),
+                'total': len(month_recs),
+                'hits': month_hits,
+                'evaluated': month_evaluated,
+                'hit_rate': round(month_hits / month_evaluated * 100, 2) if month_evaluated > 0 else 0
+            })
+        monthly_data.reverse()
+
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        house_stats = []
+        for house in houses:
+            outgoing = TransferRecommendation.query.filter_by(from_house_id=house.id).all()
+            incoming = TransferRecommendation.query.filter_by(to_house_id=house.id).all()
+            house_stats.append({
+                'house': house,
+                'outgoing_count': len(outgoing),
+                'incoming_count': len(incoming),
+                'outgoing_hit': sum(1 for r in outgoing if r.is_hit),
+                'incoming_hit': sum(1 for r in incoming if r.is_hit),
+            })
+
+        return render_template('transfer_recommendations/stats.html',
+                               stats=stats, recent_recs=recent_recs,
+                               monthly_data=monthly_data, house_stats=house_stats)
 
     @app.context_processor
     def inject_now():

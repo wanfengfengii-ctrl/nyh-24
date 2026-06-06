@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}库存预警 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-bell text-warning"></i> 库存预警中心</h2>
+</div>
+
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'active' %}active{% endif %}" href="{{ url_for('inventory_alerts', status='active') }}">
+            <i class="bi bi-exclamation-circle me-1"></i> 未处理
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'resolved' %}active{% endif %}" href="{{ url_for('inventory_alerts', status='resolved') }}">
+            <i class="bi bi-check-circle me-1"></i> 已解除
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if not status %}active{% endif %}" href="{{ url_for('inventory_alerts', status='') }}">
+            全部
+        </a>
+    </li>
+</ul>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">冰窖</label>
+                <select class="form-select" name="ice_house_id">
+                    <option value="">全部冰窖</option>
+                    {% for h in houses %}
+                    <option value="{{ h.id }}" {% if ice_house_id == h.id %}selected{% endif %}>
+                        {{ h.code }} - {{ h.location }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">预警类型</label>
+                <select class="form-select" name="alert_type">
+                    <option value="">全部类型</option>
+                    <option value="critical_shortage" {% if alert_type == 'critical_shortage' %}selected{% endif %}>严重缺冰</option>
+                    <option value="shortage" {% if alert_type == 'shortage' %}selected{% endif %}>缺冰预警</option>
+                    <option value="surplus" {% if alert_type == 'surplus' %}selected{% endif %}>压库存预警</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <a href="{{ url_for('inventory_alerts') }}" class="btn btn-outline-secondary w-100">重置</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if alerts %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>预警类型</th>
+                        <th>冰窖</th>
+                        <th>当前库存</th>
+                        <th>可用天数</th>
+                        <th>严重程度</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for alert in alerts %}
+                    <tr>
+                        <td>
+                            {% if alert.alert_type == 'critical_shortage' %}
+                            <span class="badge bg-danger">严重缺冰</span>
+                            {% elif alert.alert_type == 'shortage' %}
+                            <span class="badge bg-warning text-dark">缺冰预警</span>
+                            {% elif alert.alert_type == 'surplus' %}
+                            <span class="badge bg-info text-dark">压库存预警</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <strong>{{ alert.ice_house.code }}</strong>
+                        </td>
+                        <td>{{ alert.current_stock }} 块</td>
+                        <td>
+                            {% if alert.available_days == 999 %}
+                            999+ 天
+                            {% else %}
+                            {{ alert.available_days }} 天
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if alert.severity == 'high' %}
+                            <span class="badge bg-danger">高</span>
+                            {% elif alert.severity == 'medium' %}
+                            <span class="badge bg-warning text-dark">中</span>
+                            {% else %}
+                            <span class="badge bg-secondary">低</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if alert.status == 'active' %}
+                            <span class="badge bg-danger badge-risk">活跃</span>
+                            {% else %}
+                            <span class="badge bg-success">已解除</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ alert.created_at.strftime('%Y-%m-%d %H:%M') if alert.created_at else '-' }}</td>
+                        <td>
+                            {% if alert.status == 'active' %}
+                            <button type="button" class="btn btn-sm btn-outline-success" 
+                                    data-bs-toggle="modal" data-bs-target="#resolveModal{{ alert.id }}">
+                                <i class="bi bi-check-lg"></i> 解除
+                            </button>
+
+                            <div class="modal fade" id="resolveModal{{ alert.id }}" tabindex="-1">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">解除预警</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <form method="post" action="{{ url_for('inventory_alert_resolve', alert_id=alert.id) }}">
+                                            <div class="modal-body">
+                                                <p>确定要解除此预警吗？</p>
+                                                <div class="mb-3">
+                                                    <label class="form-label">解除说明</label>
+                                                    <textarea class="form-control" name="resolve_note" rows="3" placeholder="请填写解除原因..."></textarea>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                                                <button type="submit" class="btn btn-success">确认解除</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr class="table-light">
+                        <td colspan="8">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle me-1"></i>
+                                {{ alert.description }}
+                            </small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-bell-slash fs-1"></i>
+            <p class="mt-3">暂无库存预警</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

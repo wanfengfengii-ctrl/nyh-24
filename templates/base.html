@@ -162,6 +162,25 @@
                         </li>
                         <li><hr class="dropdown-divider text-white-50 w-100"></li>
                         <li class="nav-item w-100">
+                            <a href="{{ url_for('inventory_forecast') }}" class="nav-link {% if 'inventory_forecast' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-graph-up-arrow"></i>
+                                <span class="ms-1 d-none d-sm-inline">库存预估</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('inventory_alerts') }}" class="nav-link {% if 'inventory_alert' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-bell"></i>
+                                <span class="ms-1 d-none d-sm-inline">库存预警</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('transfer_recommendations') }}" class="nav-link {% if 'transfer_recommendation' in request.endpoint or 'recommendation_stat' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-lightbulb"></i>
+                                <span class="ms-1 d-none d-sm-inline">调拨推荐</span>
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider text-white-50 w-100"></li>
+                        <li class="nav-item w-100">
                             <a href="{{ url_for('inventory_flows') }}" class="nav-link {% if 'inventory_flow' in request.endpoint %}active{% endif %}">
                                 <i class="bi bi-journal-text"></i>
                                 <span class="ms-1 d-none d-sm-inline">库存流水</span>

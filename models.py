@@ -291,3 +291,118 @@ class InventoryFlow(db.Model):
 
     def flow_type_label(self):
         return self.FLOW_TYPE_LABELS.get(self.flow_type, self.flow_type)
+
+
+class InventoryForecast(db.Model):
+    __tablename__ = 'inventory_forecasts'
+    id = db.Column(db.Integer, primary_key=True)
+    ice_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    forecast_date = db.Column(db.Date, nullable=False)
+    current_total = db.Column(db.Integer, nullable=False)
+    daily_melt_rate = db.Column(db.Float, default=0)
+    daily_outbound_rate = db.Column(db.Float, default=0)
+    daily_consumption_rate = db.Column(db.Float, default=0)
+    available_days = db.Column(db.Float, default=0)
+    forecast_30d = db.Column(db.Integer, default=0)
+    forecast_7d = db.Column(db.Integer, default=0)
+    avg_temperature = db.Column(db.Float)
+    avg_humidity = db.Column(db.Float)
+    method = db.Column(db.String(50), default='hybrid')
+    confidence = db.Column(db.Float, default=0.7)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    ice_house = db.relationship('IceHouse', backref='inventory_forecasts')
+
+
+class InventoryAlert(db.Model):
+    __tablename__ = 'inventory_alerts'
+    id = db.Column(db.Integer, primary_key=True)
+    ice_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    alert_type = db.Column(db.String(30), nullable=False)
+    severity = db.Column(db.String(20), default='medium')
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    current_stock = db.Column(db.Integer)
+    threshold = db.Column(db.Integer)
+    available_days = db.Column(db.Float)
+    status = db.Column(db.String(20), default='active')
+    source_type = db.Column(db.String(50))
+    source_id = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime)
+    resolved_by = db.Column(db.String(100))
+    resolve_note = db.Column(db.Text)
+
+    ice_house = db.relationship('IceHouse', backref='inventory_alerts')
+
+    ALERT_TYPE_LABELS = {
+        'shortage': '缺冰预警',
+        'surplus': '压库存预警',
+        'critical_shortage': '严重缺冰',
+    }
+
+    def alert_type_label(self):
+        return self.ALERT_TYPE_LABELS.get(self.alert_type, self.alert_type)
+
+
+class TransferRecommendation(db.Model):
+    __tablename__ = 'transfer_recommendations'
+    id = db.Column(db.Integer, primary_key=True)
+    rec_no = db.Column(db.String(50), unique=True, nullable=False)
+    from_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    to_house_id = db.Column(db.Integer, db.ForeignKey('ice_houses.id'), nullable=False)
+    recommended_quantity = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.Text)
+    reason_details = db.Column(db.Text)
+    priority = db.Column(db.String(20), default='medium')
+    status = db.Column(db.String(20), default='pending')
+    confidence_score = db.Column(db.Float, default=0.0)
+    shortage_days = db.Column(db.Float)
+    surplus_days = db.Column(db.Float)
+    from_house_available_days = db.Column(db.Float)
+    to_house_available_days = db.Column(db.Float)
+
+    applicant = db.Column(db.String(100))
+    apply_date = db.Column(db.Date)
+    approver = db.Column(db.String(100))
+    approval_date = db.Column(db.Date)
+    approval_comment = db.Column(db.Text)
+
+    executor = db.Column(db.String(100))
+    execute_date = db.Column(db.Date)
+    actual_quantity = db.Column(db.Integer)
+    execute_remark = db.Column(db.Text)
+
+    transfer_order_id = db.Column(db.Integer, db.ForeignKey('transfer_orders.id'))
+    is_hit = db.Column(db.Boolean)
+    hit_score = db.Column(db.Float)
+
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    from_house = db.relationship('IceHouse', foreign_keys=[from_house_id], backref='outgoing_recommendations')
+    to_house = db.relationship('IceHouse', foreign_keys=[to_house_id], backref='incoming_recommendations')
+    transfer_order = db.relationship('TransferOrder', backref='recommendation')
+
+    STATUS_LABELS = {
+        'pending': '待审批',
+        'approved': '已批准',
+        'rejected': '已驳回',
+        'executing': '执行中',
+        'completed': '已完成',
+        'cancelled': '已取消',
+    }
+
+    PRIORITY_LABELS = {
+        'low': '低',
+        'medium': '中',
+        'high': '高',
+        'urgent': '紧急',
+    }
+
+    def status_label(self):
+        return self.STATUS_LABELS.get(self.status, self.status)
+
+    def priority_label(self):
+        return self.PRIORITY_LABELS.get(self.priority, self.priority)

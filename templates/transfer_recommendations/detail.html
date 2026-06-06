@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+
+{% block title %}推荐详情 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-lightbulb text-warning"></i> 调拨推荐详情</h2>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{{ url_for('transfer_recommendations') }}">调拨推荐</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ rec.rec_no }}</li>
+            </ol>
+        </nav>
+    </div>
+    <div>
+        {% if rec.status == 'pending' %}
+        <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#approveModal">
+            <i class="bi bi-check-lg"></i> 批准
+        </button>
+        <button type="button" class="btn btn-danger me-2" data-bs-toggle="modal" data-bs-target="#rejectModal">
+            <i class="bi bi-x-lg"></i> 驳回
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#cancelModal">
+            <i class="bi bi-x-circle"></i> 取消
+        </button>
+        {% elif rec.status == 'approved' %}
+        <a href="{{ url_for('transfer_recommendation_execute', rec_id=rec.id) }}" class="btn btn-primary me-2">
+            <i class="bi bi-play-fill"></i> 执行调拨
+        </a>
+        <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#cancelModal">
+            <i class="bi bi-x-circle"></i> 取消
+        </button>
+        {% elif rec.status == 'executing' %}
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#completeModal">
+            <i class="bi bi-check2-all"></i> 完成执行
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>推荐概览</h5>
+                <span class="badge {% if rec.status == 'pending' %}bg-warning text-dark{% elif rec.status == 'approved' %}bg-info text-dark{% elif rec.status == 'executing' %}bg-primary{% elif rec.status == 'completed' %}bg-success{% elif rec.status == 'rejected' %}bg-danger{% else %}bg-secondary{% endif %}">
+                    {{ rec.status_label() }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-5 text-center">
+                        <div class="p-3 bg-light rounded">
+                            <h6 class="text-muted">调出冰窖</h6>
+                            <h3 class="text-primary">{{ rec.from_house.code }}</h3>
+                            <p class="mb-0 text-muted small">{{ rec.from_house.location }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-2 text-center d-flex align-items-center justify-content-center">
+                        <div class="display-6 text-muted">
+                            <i class="bi bi-arrow-right"></i>
+                        </div>
+                    </div>
+                    <div class="col-md-5 text-center">
+                        <div class="p-3 bg-light rounded">
+                            <h6 class="text-muted">调入冰窖</h6>
+                            <h3 class="text-success">{{ rec.to_house.code }}</h3>
+                            <p class="mb-0 text-muted small">{{ rec.to_house.location }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row text-center">
+                    <div class="col-md-4">
+                        <div class="border rounded p-3">
+                            <h5 class="text-primary">{{ rec.recommended_quantity }}</h5>
+                            <small class="text-muted">推荐调拨数量（块）</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3">
+                            <h5 class="text-warning">
+                                {% if rec.priority == 'urgent' %}紧急{% elif rec.priority == 'high' %}高{% elif rec.priority == 'medium' %}中{% else %}低{% endif %}
+                            </h5>
+                            <small class="text-muted">优先级</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3">
+                            <h5 class="text-info">{{ (rec.confidence_score * 100)|round(1) }}%</h5>
+                            <small class="text-muted">置信度</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>推荐原因</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-3">{{ rec.reason }}</p>
+                {% if rec.reason_details %}
+                <div class="bg-light rounded p-3">
+                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.875rem;">{{ rec.reason_details }}</pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>供需分析</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-success"><i class="bi bi-box-arrow-down me-2"></i>调入方分析</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td class="text-muted">可用天数</td>
+                                <td class="fw-bold">
+                                    {% if rec.to_house_available_days == 999 %}
+                                    999+ 天
+                                    {% else %}
+                                    {{ rec.to_house_available_days }} 天
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">缺冰天数</td>
+                                <td class="fw-bold text-warning">{{ rec.shortage_days }} 天</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-primary"><i class="bi bi-box-arrow-up me-2"></i>调出方分析</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td class="text-muted">可用天数</td>
+                                <td class="fw-bold">
+                                    {% if rec.from_house_available_days == 999 %}
+                                    999+ 天
+                                    {% else %}
+                                    {{ rec.from_house_available_days }} 天
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">富余天数</td>
+                                <td class="fw-bold text-info">{{ rec.surplus_days }} 天</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>处理流程</h5>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    <div class="mb-3 d-flex">
+                        <div class="me-3">
+                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                <i class="bi bi-lightbulb text-white" style="font-size: 14px;"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="mb-1 fw-bold">生成推荐</p>
+                            <small class="text-muted">
+                                {% if rec.applicant %}{{ rec.applicant }}{% endif %}
+                                {% if rec.apply_date %}{{ rec.apply_date }}{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    {% if rec.approver %}
+                    <div class="mb-3 d-flex">
+                        <div class="me-3">
+                            <div class="bg-{% if rec.status == 'rejected' %}danger{% else %}success{% endif %} rounded-circle d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                <i class="bi {% if rec.status == 'rejected' %}bi-x-lg{% else %}bi-check-lg{% endif %} text-white" style="font-size: 14px;"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="mb-1 fw-bold">
+                                {% if rec.status == 'rejected' %}已驳回{% else %}已批准{% endif %}
+                            </p>
+                            <small class="text-muted">{{ rec.approver }} · {{ rec.approval_date }}</small>
+                            {% if rec.approval_comment %}
+                            <p class="mt-1 small text-muted">{{ rec.approval_comment }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rec.executor %}
+                    <div class="mb-3 d-flex">
+                        <div class="me-3">
+                            <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                <i class="bi bi-play-fill text-white" style="font-size: 14px;"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="mb-1 fw-bold">开始执行</p>
+                            <small class="text-muted">{{ rec.executor }} · {{ rec.execute_date }}</small>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rec.status == 'completed' %}
+                    <div class="mb-3 d-flex">
+                        <div class="me-3">
+                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                <i class="bi bi-check2-all text-white" style="font-size: 14px;"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="mb-1 fw-bold">执行完成</p>
+                            {% if rec.actual_quantity %}
+                            <small class="text-muted">实际调拨 {{ rec.actual_quantity }} 块</small>
+                            {% endif %}
+                            {% if rec.hit_score is not none %}
+                            <div class="mt-1">
+                                <span class="badge {% if rec.is_hit %}bg-success{% else %}bg-secondary{% endif %}">
+                                    {% if rec.is_hit %}命中{% else %}未命中{% endif %} · {{ rec.hit_score }}%
+                                </span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rec.status == 'cancelled' %}
+                    <div class="mb-3 d-flex">
+                        <div class="me-3">
+                            <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                <i class="bi bi-x-circle text-white" style="font-size: 14px;"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="mb-1 fw-bold">已取消</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if rec.transfer_order %}
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>关联调拨单</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-2">
+                    <strong>{{ rec.transfer_order.transfer_no }}</strong>
+                </p>
+                <p class="mb-0">
+                    <a href="{{ url_for('transfer_detail', order_id=rec.transfer_order.id) }}" class="btn btn-sm btn-outline-primary">
+                        查看调拨单
+                    </a>
+                </p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if rec.status == 'pending' %}
+<div class="modal fade" id="approveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">批准推荐</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('transfer_recommendation_approve', rec_id=rec.id) }}">
+                <div class="modal-body">
+                    <p>确定批准此调拨推荐吗？</p>
+                    <div class="mb-3">
+                        <label class="form-label">审批意见（可选）</label>
+                        <textarea class="form-control" name="approval_comment" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-success">确认批准</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="rejectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">驳回推荐</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('transfer_recommendation_reject', rec_id=rec.id) }}">
+                <div class="modal-body">
+                    <p>确定驳回此调拨推荐吗？</p>
+                    <div class="mb-3">
+                        <label class="form-label">驳回原因</label>
+                        <textarea class="form-control" name="approval_comment" rows="3" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-danger">确认驳回</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">取消推荐</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('transfer_recommendation_cancel', rec_id=rec.id) }}">
+                <div class="modal-body">
+                    <p>确定取消此调拨推荐吗？取消后将标记为未命中。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">再想想</button>
+                    <button type="submit" class="btn btn-danger">确认取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if rec.status == 'executing' %}
+<div class="modal fade" id="completeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">完成执行</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('transfer_recommendation_complete', rec_id=rec.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">实际调拨数量</label>
+                        <input type="number" class="form-control" name="actual_quantity" value="{{ rec.actual_quantity or rec.recommended_quantity }}">
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="isHit" name="is_hit" checked>
+                        <label class="form-check-label" for="isHit">本次推荐是否命中（是否符合实际需求）</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-success">确认完成</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if rec.status == 'approved' %}
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">取消推荐</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('transfer_recommendation_cancel', rec_id=rec.id) }}">
+                <div class="modal-body">
+                    <p>确定取消此调拨推荐吗？</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">再想想</button>
+                    <button type="submit" class="btn btn-danger">确认取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

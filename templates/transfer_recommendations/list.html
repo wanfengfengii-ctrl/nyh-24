@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}调拨推荐 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-lightbulb text-warning"></i> 智能调拨推荐</h2>
+    <div>
+        <a href="{{ url_for('recommendation_stats') }}" class="btn btn-outline-info me-2">
+            <i class="bi bi-bar-chart"></i> 命中率统计
+        </a>
+        <form method="post" action="{{ url_for('transfer_recommendations_generate') }}" style="display: inline;">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-magic"></i> 生成推荐
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card card-stat">
+            <div class="card-body text-center">
+                <h3 class="text-primary mb-0">{{ stats.total }}</h3>
+                <small class="text-muted">总推荐数</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card card-stat">
+            <div class="card-body text-center">
+                <h3 class="text-success mb-0">{{ stats.approved }}</h3>
+                <small class="text-muted">已批准</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card card-stat">
+            <div class="card-body text-center">
+                <h3 class="text-info mb-0">{{ stats.completed }}</h3>
+                <small class="text-muted">已完成</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card card-stat">
+            <div class="card-body text-center">
+                <h3 class="text-danger mb-0">{{ stats.rejected }}</h3>
+                <small class="text-muted">已驳回</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card card-stat">
+            <div class="card-body text-center">
+                <h3 class="text-warning mb-0">{{ stats.hit_rate }}%</h3>
+                <small class="text-muted">命中率</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card card-stat">
+            <div class="card-body text-center">
+                <h3 class="text-secondary mb-0">{{ stats.approval_rate }}%</h3>
+                <small class="text-muted">采纳率</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link {% if not status %}active{% endif %}" href="{{ url_for('transfer_recommendations') }}">全部</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'pending' %}active{% endif %}" href="{{ url_for('transfer_recommendations', status='pending') }}">待审批</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'approved' %}active{% endif %}" href="{{ url_for('transfer_recommendations', status='approved') }}">已批准</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'executing' %}active{% endif %}" href="{{ url_for('transfer_recommendations', status='executing') }}">执行中</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'completed' %}active{% endif %}" href="{{ url_for('transfer_recommendations', status='completed') }}">已完成</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status == 'rejected' %}active{% endif %}" href="{{ url_for('transfer_recommendations', status='rejected') }}">已驳回</a>
+    </li>
+</ul>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">冰窖</label>
+                <select class="form-select" name="ice_house_id">
+                    <option value="">全部冰窖</option>
+                    {% for h in houses %}
+                    <option value="{{ h.id }}" {% if ice_house_id == h.id %}selected{% endif %}>
+                        {{ h.code }} - {{ h.location }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">优先级</label>
+                <select class="form-select" name="priority">
+                    <option value="">全部优先级</option>
+                    <option value="urgent" {% if priority == 'urgent' %}selected{% endif %}>紧急</option>
+                    <option value="high" {% if priority == 'high' %}selected{% endif %}>高</option>
+                    <option value="medium" {% if priority == 'medium' %}selected{% endif %}>中</option>
+                    <option value="low" {% if priority == 'low' %}selected{% endif %}>低</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <a href="{{ url_for('transfer_recommendations') }}" class="btn btn-outline-secondary w-100">重置</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if recommendations %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>推荐编号</th>
+                        <th>调出冰窖</th>
+                        <th>调入冰窖</th>
+                        <th>推荐数量</th>
+                        <th>优先级</th>
+                        <th>置信度</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rec in recommendations %}
+                    <tr>
+                        <td class="fw-bold">{{ rec.rec_no }}</td>
+                        <td>{{ rec.from_house.code }}</td>
+                        <td>{{ rec.to_house.code }}</td>
+                        <td>{{ rec.recommended_quantity }} 块</td>
+                        <td>
+                            {% if rec.priority == 'urgent' %}
+                            <span class="badge bg-danger">紧急</span>
+                            {% elif rec.priority == 'high' %}
+                            <span class="badge bg-warning text-dark">高</span>
+                            {% elif rec.priority == 'medium' %}
+                            <span class="badge bg-primary">中</span>
+                            {% else %}
+                            <span class="badge bg-secondary">低</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="progress" style="height: 6px; width: 60px; display: inline-block; vertical-align: middle;">
+                                <div class="progress-bar bg-info" role="progressbar" style="width: {{ rec.confidence_score * 100 }}%"></div>
+                            </div>
+                            <small class="text-muted ms-1">{{ (rec.confidence_score * 100)|round(0)|int }}%</small>
+                        </td>
+                        <td>
+                            {% if rec.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">待审批</span>
+                            {% elif rec.status == 'approved' %}
+                            <span class="badge bg-info text-dark">已批准</span>
+                            {% elif rec.status == 'executing' %}
+                            <span class="badge bg-primary">执行中</span>
+                            {% elif rec.status == 'completed' %}
+                            <span class="badge bg-success">已完成</span>
+                            {% elif rec.status == 'rejected' %}
+                            <span class="badge bg-danger">已驳回</span>
+                            {% elif rec.status == 'cancelled' %}
+                            <span class="badge bg-secondary">已取消</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ rec.created_at.strftime('%Y-%m-%d %H:%M') if rec.created_at else '-' }}</td>
+                        <td>
+                            <a href="{{ url_for('transfer_recommendation_detail', rec_id=rec.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-eye"></i> 详情
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-lightbulb fs-1"></i>
+            <p class="mt-3">暂无调拨推荐</p>
+            <p class="text-muted small">点击"生成推荐"按钮，系统将根据库存情况自动生成调拨建议</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

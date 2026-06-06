@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}执行调拨推荐 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-play-fill text-primary"></i> 执行调拨推荐</h2>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{{ url_for('transfer_recommendations') }}">调拨推荐</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('transfer_recommendation_detail', rec_id=rec.id) }}">{{ rec.rec_no }}</a></li>
+                <li class="breadcrumb-item active" aria-current="page">执行</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>推荐信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <p class="text-muted mb-1">调出冰窖</p>
+                        <h5 class="mb-0">{{ rec.from_house.code }}</h5>
+                    </div>
+                    <div class="col-6">
+                        <p class="text-muted mb-1">调入冰窖</p>
+                        <h5 class="mb-0">{{ rec.to_house.code }}</h5>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <p class="text-muted mb-1">推荐数量</p>
+                        <h5 class="mb-0">{{ rec.recommended_quantity }} 块</h5>
+                    </div>
+                    <div class="col-6">
+                        <p class="text-muted mb-1">优先级</p>
+                        <h5 class="mb-0">
+                            {% if rec.priority == 'urgent' %}
+                            <span class="badge bg-danger">紧急</span>
+                            {% elif rec.priority == 'high' %}
+                            <span class="badge bg-warning text-dark">高</span>
+                            {% elif rec.priority == 'medium' %}
+                            <span class="badge bg-primary">中</span>
+                            {% else %}
+                            <span class="badge bg-secondary">低</span>
+                            {% endif %}
+                        </h5>
+                    </div>
+                </div>
+                <div>
+                    <p class="text-muted mb-1">推荐原因</p>
+                    <p class="mb-0">{{ rec.reason }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-pencil-square me-2"></i>执行信息</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label class="form-label">实际调拨数量 <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" name="actual_quantity" value="{{ rec.recommended_quantity }}" min="1" required>
+                        <div class="form-text">建议按照推荐数量执行，可根据实际情况调整</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">执行人</label>
+                        <input type="text" class="form-control" name="executor" value="{{ current_user.username }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">执行备注</label>
+                        <textarea class="form-control" name="execute_remark" rows="3" placeholder="请填写执行备注（可选）"></textarea>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg"></i> 确认执行
+                        </button>
+                        <a href="{{ url_for('transfer_recommendation_detail', rec_id=rec.id) }}" class="btn btn-outline-secondary">
+                            取消
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

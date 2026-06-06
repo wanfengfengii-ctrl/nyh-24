@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}推荐命中率统计 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-bar-chart-fill text-info"></i> 推荐命中率统计</h2>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{{ url_for('transfer_recommendations') }}">调拨推荐</a></li>
+                <li class="breadcrumb-item active" aria-current="page">命中率统计</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                        <i class="bi bi-lightbulb"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0">{{ stats.total }}</h3>
+                        <small class="text-muted">总推荐数</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-check2-circle"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0">{{ stats.hits }}</h3>
+                        <small class="text-muted">命中次数</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-info bg-opacity-10 text-info">
+                        <i class="bi bi-percent"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0">{{ stats.hit_rate }}%</h3>
+                        <small class="text-muted">命中率</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                        <i class="bi bi-thumb-up"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0">{{ stats.approval_rate }}%</h3>
+                        <small class="text-muted">采纳率</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>近6个月命中率趋势</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>月份</th>
+                                <th>推荐数</th>
+                                <th>已评估</th>
+                                <th>命中数</th>
+                                <th>命中率</th>
+                                <th>趋势</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in monthly_data %}
+                            <tr>
+                                <td>{{ m.month }}</td>
+                                <td>{{ m.total }}</td>
+                                <td>{{ m.evaluated }}</td>
+                                <td>{{ m.hits }}</td>
+                                <td>
+                                    <span class="badge {% if m.hit_rate >= 70 %}bg-success{% elif m.hit_rate >= 50 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                        {{ m.hit_rate }}%
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="progress" style="height: 6px; width: 80px;">
+                                        <div class="progress-bar bg-info" role="progressbar" style="width: {{ m.hit_rate }}%"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>近期推荐记录</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_recs %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>编号</th>
+                                <th>方向</th>
+                                <th>数量</th>
+                                <th>状态</th>
+                                <th>命中</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in recent_recs[:10] %}
+                            <tr>
+                                <td class="fw-bold">{{ r.rec_no }}</td>
+                                <td>{{ r.from_house.code }} → {{ r.to_house.code }}</td>
+                                <td>{{ r.recommended_quantity }} 块</td>
+                                <td>
+                                    {% if r.status == 'pending' %}
+                                    <span class="badge bg-warning text-dark">待审批</span>
+                                    {% elif r.status == 'approved' %}
+                                    <span class="badge bg-info text-dark">已批准</span>
+                                    {% elif r.status == 'executing' %}
+                                    <span class="badge bg-primary">执行中</span>
+                                    {% elif r.status == 'completed' %}
+                                    <span class="badge bg-success">已完成</span>
+                                    {% elif r.status == 'rejected' %}
+                                    <span class="badge bg-danger">已驳回</span>
+                                    {% elif r.status == 'cancelled' %}
+                                    <span class="badge bg-secondary">已取消</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if r.is_hit is none %}
+                                    <span class="text-muted">待评估</span>
+                                    {% elif r.is_hit %}
+                                    <span class="text-success"><i class="bi bi-check-circle"></i> 命中</span>
+                                    {% else %}
+                                    <span class="text-danger"><i class="bi bi-x-circle"></i> 未命中</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-3 text-muted">
+                    <p class="mb-0">暂无近期推荐记录</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-pie-chart me-2"></i>状态分布</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">待审批</span>
+                    <span class="fw-bold">
+                        {{ stats.total - stats.approved - stats.rejected - stats.completed - (stats.total - stats.approved - stats.rejected - stats.completed) }}
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">已批准</span>
+                    <span class="fw-bold text-success">{{ stats.approved }}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">已完成</span>
+                    <span class="fw-bold text-info">{{ stats.completed }}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">已驳回</span>
+                    <span class="fw-bold text-danger">{{ stats.rejected }}</span>
+                </div>
+                <hr>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">已评估数</span>
+                    <span class="fw-bold">{{ stats.evaluated }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-building me-2"></i>各冰窖推荐统计</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>冰窖</th>
+                                <th>调出</th>
+                                <th>调入</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for h in house_stats %}
+                            <tr>
+                                <td class="fw-bold">{{ h.house.code }}</td>
+                                <td>{{ h.outgoing_count }}</td>
+                                <td>{{ h.incoming_count }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
