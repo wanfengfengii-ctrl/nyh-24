@@ -787,6 +787,9 @@ def create_app():
             deadline = None
             if deadline_str:
                 deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+                if deadline < date.today():
+                    flash('截止日期不能早于今天', 'danger')
+                    return render_template('rectifications/form.html', task=None, houses=houses, alerts=alerts)
 
             task = RectificationTask(
                 ice_house_id=ice_house_id,
@@ -1320,6 +1323,10 @@ def create_app():
             query = RectificationTask.query
             if ice_house_id:
                 query = query.filter_by(ice_house_id=ice_house_id)
+            if start_date:
+                query = query.filter(db.func.date(RectificationTask.created_at) >= start_date)
+            if end_date:
+                query = query.filter(db.func.date(RectificationTask.created_at) <= end_date)
             records = query.order_by(RectificationTask.created_at).all()
 
             writer.writerow(['任务编号', '冰窖编号', '标题', '状态', '截止日期', '完成日期', '整改结果'])
@@ -1339,6 +1346,10 @@ def create_app():
             query = RiskAlert.query
             if ice_house_id:
                 query = query.filter_by(ice_house_id=ice_house_id)
+            if start_date:
+                query = query.filter(db.func.date(RiskAlert.created_at) >= start_date)
+            if end_date:
+                query = query.filter(db.func.date(RiskAlert.created_at) <= end_date)
             records = query.order_by(RiskAlert.created_at).all()
 
             writer.writerow(['冰窖编号', '预警类型', '严重程度', '标题', '状态', '创建时间', '解除时间'])
@@ -1367,7 +1378,7 @@ def create_app():
 
     @app.context_processor
     def inject_now():
-        return {'now': datetime.utcnow()}
+        return {'now': datetime.utcnow(), 'date': date}
 
     with app.app_context():
         db.create_all()

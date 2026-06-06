@@ -58,7 +58,7 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label">截止日期</label>
-                                <input type="date" class="form-control" name="deadline" value="{{ task.deadline.isoformat() if task and task.deadline else '' }}">
+                                <input type="date" class="form-control" name="deadline" value="{{ task.deadline.isoformat() if task and task.deadline else '' }}" min="{{ date.today().isoformat() }}">
                             </div>
                         </div>
                         <div class="col-md-6">
