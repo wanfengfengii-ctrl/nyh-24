@@ -219,6 +219,10 @@ def create_app():
             if current_remaining is None:
                 current_remaining = ice_count
 
+            if current_remaining < 0:
+                flash('当前剩余量不能为负数', 'danger')
+                return render_template('batches/form.html', batch=None, houses=houses)
+
             if current_remaining > ice_count:
                 flash('当前剩余量不能大于入窖数量', 'danger')
                 return render_template('batches/form.html', batch=None, houses=houses)
@@ -261,6 +265,10 @@ def create_app():
 
             if current_remaining is None:
                 current_remaining = ice_count
+
+            if current_remaining < 0:
+                flash('当前剩余量不能为负数', 'danger')
+                return render_template('batches/form.html', batch=batch, houses=houses)
 
             if current_remaining > ice_count:
                 flash('当前剩余量不能大于入窖数量', 'danger')
@@ -427,6 +435,10 @@ def create_app():
                 flash('批次不存在', 'danger')
                 return render_template('melt_losses/form.html', loss=None, houses=houses, batches=batches)
 
+            if batch.ice_house_id != ice_house_id:
+                flash('该批次不属于所选冰窖', 'danger')
+                return render_template('melt_losses/form.html', loss=None, houses=houses, batches=batches)
+
             if loss_amount > batch.current_remaining:
                 flash('融损数量不能大于当前剩余量', 'danger')
                 return render_template('melt_losses/form.html', loss=None, houses=houses, batches=batches)
@@ -519,6 +531,12 @@ def create_app():
             if report_date > date.today():
                 flash('报修日期不能晚于当前日期', 'danger')
                 return render_template('repairs/form.html', repair=repair, houses=houses)
+
+            if repair_date_str:
+                repair_date = datetime.strptime(repair_date_str, '%Y-%m-%d').date()
+                if repair_date > date.today():
+                    flash('修缮日期不能晚于当前日期', 'danger')
+                    return render_template('repairs/form.html', repair=repair, houses=houses)
 
             repair.ice_house_id = ice_house_id
             repair.report_date = report_date

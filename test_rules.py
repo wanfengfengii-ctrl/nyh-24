@@ -283,6 +283,65 @@ def test_system():
         print("  ✗ 首页概览显示异常")
         errors.append("首页概览显示异常")
 
+    # 16. 融损登记 - 批次必须属于所选冰窖
+    print("\n【16】融损登记-批次不属于所选冰窖测试")
+    # 先给冰窖2也创建一个批次
+    session.post(f"{BASE_URL}/batches/new", data={
+        "ice_house_id": "2",
+        "entry_date": past_date,
+        "ice_count": "150",
+        "expected_storage_period": "60",
+        "current_remaining": "150"
+    }, allow_redirects=False)
+    # 选择冰窖1，但提交冰窖2的批次
+    response = session.post(f"{BASE_URL}/melt-losses/new", data={
+        "ice_house_id": "1",
+        "batch_id": "2",
+        "record_date": date.today().isoformat(),
+        "loss_amount": "10",
+        "reason": "测试跨冰窖测试"
+    }, allow_redirects=False)
+    if response.status_code == 200:
+        print("  ✓ 跨冰窖批次融损被正确拒绝")
+        passed += 1
+    else:
+        print("  ✗ 跨冰窖批次融损未被拒绝")
+        errors.append("融损登记-批次所属冰窖校验失败")
+
+    # 17. 修缮工单 - 修缮日期不能晚于当前日期
+    print("\n【17】修缮工单-修缮日期不能晚于当前日期测试")
+    response = session.post(f"{BASE_URL}/repairs/1/edit", data={
+        "ice_house_id": "1",
+        "report_date": date.today().isoformat(),
+        "issue_description": "窖体渗水需要修缮",
+        "status": "in_progress",
+        "repair_date": future_date,
+        "repair_cost": "500",
+        "notes": "测试"
+    }, allow_redirects=False)
+    if response.status_code == 200:
+        print("  ✓ 未来修缮日期被正确拒绝")
+        passed += 1
+    else:
+        print("  ✗ 未来修缮日期未被拒绝")
+        errors.append("修缮日期校验失败")
+
+    # 18. 藏冰批次 - 当前剩余量不能为负数
+    print("\n【18】藏冰批次-当前剩余量不能为负数测试")
+    response = session.post(f"{BASE_URL}/batches/1/edit", data={
+        "ice_house_id": "1",
+        "entry_date": past_date,
+        "ice_count": "200",
+        "expected_storage_period": "90",
+        "current_remaining": "-10"
+    }, allow_redirects=False)
+    if response.status_code == 200:
+        print("  ✓ 负数剩余量被正确拒绝")
+        passed += 1
+    else:
+        print("  ✗ 负数剩余量未被拒绝")
+        errors.append("剩余量负数校验失败")
+
     # 结果汇总
     print("\n" + "=" * 60)
     print(f"测试结果：{passed} 项通过，{len(errors)} 项失败")
