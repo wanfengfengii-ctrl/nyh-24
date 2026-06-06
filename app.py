@@ -1829,6 +1829,12 @@ def create_app():
         return render_template('outbounds/form.html', record=None, houses=houses,
                                purposes=purposes, batches=batches, ice_house_id=None)
 
+    @app.route('/outbounds/<int:record_id>')
+    @login_required
+    def outbound_detail(record_id):
+        record = OutboundRecord.query.get_or_404(record_id)
+        return render_template('outbounds/detail_modal.html', record=record)
+
     # ========== 库存流水 ==========
     @app.route('/inventory-flows')
     @login_required

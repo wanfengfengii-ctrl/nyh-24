@@ -138,7 +138,7 @@ function loadBatches() {
         return;
     }
 
-    fetch('{{ url_for("api_batches_by_house", house_id=0) }}'.replace('/0/', '/' + houseId + '/'))
+    fetch('/api/batches/by-house/' + houseId)
         .then(response => response.json())
         .then(data => {
             if (data.length === 0) {

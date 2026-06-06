@@ -60,52 +60,40 @@
 
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0"><i class="bi bi-list-check"></i> 调拨明细</h5>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addBatchRow()" id="addRowBtn" disabled>
-                            <i class="bi bi-plus-lg"></i> 添加批次
-                        </button>
                     </div>
 
-                    <div id="batchItems">
-                        {% if batches_from %}
-                        {% for batch in batches_from %}
-                        <div class="card mb-2 batch-row" data-batch-id="{{ batch.id }}">
-                            <div class="card-body py-3">
-                                <div class="row align-items-center">
-                                    <div class="col-md-5">
-                                        <small class="text-muted">批次</small>
-                                        <p class="mb-0 fw-bold">
-                                            {{ batch.entry_date }} - {{ batch.ice_count }}块
-                                            <span class="text-success">(剩余 {{ batch.current_remaining }})</span>
-                                        </p>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label small">调拨数量</label>
-                                        <div class="input-group">
-                                            <input type="number" class="form-control" name="quantities[]"
-                                                   min="1" max="{{ batch.current_remaining }}"
-                                                   placeholder="请输入数量" value="{{ batch.current_remaining }}">
-                                            <input type="hidden" name="batch_ids[]" value="{{ batch.id }}">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3 text-end">
-                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </div>
+                    <div class="card bg-light mb-3">
+                        <div class="card-body py-3">
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-5">
+                                    <label class="form-label">选择批次</label>
+                                    <select class="form-select" id="batch_select" disabled>
+                                        <option value="">请先选择调出冰窖</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">调拨数量</label>
+                                    <input type="number" class="form-control" id="quantity_input" min="1" placeholder="数量" disabled>
+                                    <div class="form-text text-muted" id="batch_remaining"></div>
+                                </div>
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-primary w-100" id="add_batch_btn" onclick="addBatch()" disabled>
+                                        <i class="bi bi-plus-lg"></i> 添加到明细
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                        {% endfor %}
-                        {% else %}
+                    </div>
+
+                    <div id="batchItems">
                         <div class="text-center py-4 text-muted" id="emptyHint">
-                            <i class="bi bi-info-circle"></i> 请先选择调出冰窖以加载可用批次
+                            <i class="bi bi-info-circle"></i> 暂无调拨明细，请从上方选择批次并添加
                         </div>
-                        {% endif %}
                     </div>
 
                     <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
                         <a href="{{ url_for('transfers') }}" class="btn btn-secondary">取消</a>
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
                             <i class="bi bi-send"></i> 提交申请
                         </button>
                     </div>
@@ -155,83 +143,208 @@
                 </ul>
             </div>
         </div>
+
+        <div class="card mt-3">
+            <div class="card-header bg-primary-subtle">
+                <h5 class="mb-0"><i class="bi bi-calculator text-primary"></i> 调拨汇总</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">已选批次：</span>
+                    <strong id="total_batches">0 个</strong>
+                </div>
+                <div class="d-flex justify-content-between mt-2">
+                    <span class="text-muted">总数量：</span>
+                    <strong class="text-primary fs-5" id="total_quantity">0 块</strong>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
+var availableBatches = [];
+var selectedBatchIds = new Set();
+
 function loadBatches() {
     var fromHouseId = document.getElementById('from_house_id').value;
+    var batchSelect = document.getElementById('batch_select');
+    var quantityInput = document.getElementById('quantity_input');
+    var addBtn = document.getElementById('add_batch_btn');
+    var remainingInfo = document.getElementById('batch_remaining');
+
     if (!fromHouseId) {
-        document.getElementById('addRowBtn').disabled = true;
-        document.getElementById('batchItems').innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-info-circle"></i> 请先选择调出冰窖以加载可用批次</div>';
+        batchSelect.innerHTML = '<option value="">请先选择调出冰窖</option>';
+        batchSelect.disabled = true;
+        quantityInput.disabled = true;
+        addBtn.disabled = true;
+        remainingInfo.textContent = '';
+        availableBatches = [];
+        clearAllItems();
         return;
     }
 
-    fetch('{{ url_for("api_batches_by_house", house_id=0) }}'.replace('/0/', '/' + fromHouseId + '/'))
+    fetch('/api/batches/by-house/' + fromHouseId)
         .then(response => response.json())
         .then(data => {
-            var container = document.getElementById('batchItems');
+            availableBatches = data;
+            selectedBatchIds.clear();
+            clearAllItems();
+            refreshBatchSelect();
+
             if (data.length === 0) {
-                container.innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-inbox"></i> 该冰窖暂无可用批次</div>';
-                document.getElementById('addRowBtn').disabled = true;
-                return;
+                batchSelect.innerHTML = '<option value="">该冰窖无可用批次</option>';
+                batchSelect.disabled = true;
+                quantityInput.disabled = true;
+                addBtn.disabled = true;
+            } else {
+                batchSelect.disabled = false;
+                quantityInput.disabled = false;
+                addBtn.disabled = false;
             }
-            container.innerHTML = '';
-            data.forEach(function(batch) {
-                addBatchCard(batch);
-            });
-            document.getElementById('addRowBtn').disabled = false;
         });
 }
 
-function addBatchCard(batch) {
+function refreshBatchSelect() {
+    var batchSelect = document.getElementById('batch_select');
+    batchSelect.innerHTML = '<option value="">请选择批次</option>';
+
+    availableBatches.forEach(function(batch) {
+        if (!selectedBatchIds.has(batch.id)) {
+            var option = document.createElement('option');
+            option.value = batch.id;
+            option.textContent = batch.label;
+            option.dataset.remaining = batch.label.match(/剩余(\d+)/) ? batch.label.match(/剩余(\d+)/)[1] : 0;
+            batchSelect.appendChild(option);
+        }
+    });
+
+    updateQuantityMax();
+}
+
+function updateQuantityMax() {
+    var batchSelect = document.getElementById('batch_select');
+    var quantityInput = document.getElementById('quantity_input');
+    var remainingInfo = document.getElementById('batch_remaining');
+    var addBtn = document.getElementById('add_batch_btn');
+
+    if (!batchSelect.value) {
+        quantityInput.disabled = true;
+        addBtn.disabled = true;
+        remainingInfo.textContent = '';
+        return;
+    }
+
+    var selectedOption = batchSelect.options[batchSelect.selectedIndex];
+    var remaining = parseInt(selectedOption.dataset.remaining) || 0;
+
+    quantityInput.disabled = false;
+    quantityInput.max = remaining;
+    quantityInput.value = remaining > 0 ? remaining : '';
+    addBtn.disabled = remaining <= 0;
+    remainingInfo.textContent = '剩余 ' + remaining + ' 块';
+}
+
+document.getElementById('batch_select').addEventListener('change', updateQuantityMax);
+
+function addBatch() {
+    var batchSelect = document.getElementById('batch_select');
+    var quantityInput = document.getElementById('quantity_input');
+
+    var batchId = parseInt(batchSelect.value);
+    var quantity = parseInt(quantityInput.value);
+
+    if (!batchId) {
+        alert('请选择批次');
+        return;
+    }
+    if (!quantity || quantity <= 0) {
+        alert('请输入有效的调拨数量');
+        return;
+    }
+
+    var selectedOption = batchSelect.options[batchSelect.selectedIndex];
+    var remaining = parseInt(selectedOption.dataset.remaining) || 0;
+    if (quantity > remaining) {
+        alert('调拨数量不能大于剩余量 (' + remaining + ' 块)');
+        return;
+    }
+
+    var batchLabel = selectedOption.textContent;
+
+    selectedBatchIds.add(batchId);
+
     var container = document.getElementById('batchItems');
+    var emptyHint = document.getElementById('emptyHint');
+    if (emptyHint) {
+        emptyHint.remove();
+    }
+
     var card = document.createElement('div');
     card.className = 'card mb-2 batch-row';
-    card.setAttribute('data-batch-id', batch.id);
+    card.setAttribute('data-batch-id', batchId);
     card.innerHTML = `
         <div class="card-body py-3">
             <div class="row align-items-center">
                 <div class="col-md-5">
                     <small class="text-muted">批次</small>
-                    <p class="mb-0 fw-bold">${batch.label}</p>
+                    <p class="mb-0 fw-bold">${batchLabel}</p>
+                    <input type="hidden" name="batch_ids[]" value="${batchId}">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label small">调拨数量</label>
-                    <div class="input-group">
-                        <input type="number" class="form-control" name="quantities[]"
-                               min="1" placeholder="请输入数量">
-                        <input type="hidden" name="batch_ids[]" value="${batch.id}">
-                    </div>
+                    <small class="text-muted">调拨数量</small>
+                    <p class="mb-0 fw-bold text-primary">${quantity} 块
+                        <input type="hidden" name="quantities[]" value="${quantity}">
+                    </p>
                 </div>
                 <div class="col-md-3 text-end">
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)">
-                        <i class="bi bi-trash"></i>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeBatch(${batchId}, this)">
+                        <i class="bi bi-trash"></i> 移除
                     </button>
                 </div>
             </div>
         </div>
     `;
     container.appendChild(card);
+
+    refreshBatchSelect();
+    updateSummary();
 }
 
-function addBatchRow() {
-    var fromHouseId = document.getElementById('from_house_id').value;
-    if (!fromHouseId) {
-        alert('请先选择调出冰窖');
-        return;
-    }
-
-    fetch('{{ url_for("api_batches_by_house", house_id=0) }}'.replace('/0/', '/' + fromHouseId + '/'))
-        .then(response => response.json())
-        .then(data => {
-            if (data.length === 0) return;
-            addBatchCard(data[0]);
-        });
-}
-
-function removeRow(btn) {
+function removeBatch(batchId, btn) {
     btn.closest('.batch-row').remove();
+    selectedBatchIds.delete(batchId);
+    refreshBatchSelect();
+    updateSummary();
+
+    var container = document.getElementById('batchItems');
+    if (container.querySelectorAll('.batch-row').length === 0) {
+        container.innerHTML = '<div class="text-center py-4 text-muted" id="emptyHint"><i class="bi bi-info-circle"></i> 暂无调拨明细，请从上方选择批次并添加</div>';
+    }
+}
+
+function clearAllItems() {
+    var container = document.getElementById('batchItems');
+    container.innerHTML = '<div class="text-center py-4 text-muted" id="emptyHint"><i class="bi bi-info-circle"></i> 暂无调拨明细，请从上方选择批次并添加</div>';
+    selectedBatchIds.clear();
+    updateSummary();
+}
+
+function updateSummary() {
+    var rows = document.querySelectorAll('.batch-row');
+    var totalBatches = rows.length;
+    var totalQty = 0;
+
+    rows.forEach(function(row) {
+        var qtyInput = row.querySelector('input[name="quantities[]"]');
+        if (qtyInput) {
+            totalQty += parseInt(qtyInput.value) || 0;
+        }
+    });
+
+    document.getElementById('total_batches').textContent = totalBatches + ' 个';
+    document.getElementById('total_quantity').textContent = totalQty + ' 块';
+    document.getElementById('submitBtn').disabled = totalBatches === 0;
 }
 </script>
 {% endblock %}

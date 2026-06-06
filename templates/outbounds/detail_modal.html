@@ -1,0 +1,56 @@
+<div class="modal-header">
+    <h5 class="modal-title">出窖详情</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label class="text-muted">出窖单号</label>
+            <p class="fw-bold">{{ record.outbound_no }}</p>
+        </div>
+        <div class="col-md-6">
+            <label class="text-muted">出窖日期</label>
+            <p>{{ record.outbound_date }}</p>
+        </div>
+    </div>
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label class="text-muted">冰窖</label>
+            <p class="fw-bold">{{ record.ice_house.code }} - {{ record.ice_house.location }}</p>
+        </div>
+        <div class="col-md-6">
+            <label class="text-muted">批次</label>
+            <p class="fw-bold">#{{ record.batch.id }} · {{ record.batch.entry_date }}</p>
+        </div>
+    </div>
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label class="text-muted">出窖数量</label>
+            <p class="fw-bold text-primary">{{ record.quantity }} 块</p>
+        </div>
+        <div class="col-md-6">
+            <label class="text-muted">用途</label>
+            <p><span class="badge bg-info">{{ record.purpose }}</span></p>
+        </div>
+    </div>
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label class="text-muted">去向</label>
+            <p>{{ record.destination or '-' }}</p>
+        </div>
+        <div class="col-md-6">
+            <label class="text-muted">经办人</label>
+            <p>{{ record.handler or '-' }}</p>
+        </div>
+    </div>
+    <div class="mb-3">
+        <label class="text-muted">备注</label>
+        <p>{{ record.remark or '无' }}</p>
+    </div>
+    <div class="text-muted small">
+        <i class="bi bi-clock"></i> 创建时间：{{ record.created_at.strftime('%Y-%m-%d %H:%M') if record.created_at else '-' }}
+    </div>
+</div>
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+</div>
