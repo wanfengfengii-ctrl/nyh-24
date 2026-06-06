@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}{% if task %}编辑整改任务{% else %}创建整改任务{% endif %} - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-tools text-primary"></i> {% if task %}编辑整改任务{% else %}创建整改任务{% endif %}</h2>
+    <a href="{{ url_for('rectifications') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label class="form-label">所属冰窖 <span class="text-danger">*</span></label>
+                        <select class="form-select" name="ice_house_id" required>
+                            <option value="">请选择冰窖</option>
+                            {% for h in houses %}
+                            <option value="{{ h.id }}" {% if task and task.ice_house_id == h.id %}selected{% elif request.args.get('ice_house_id')|int == h.id %}selected{% endif %}>
+                                {{ h.code }} - {{ h.location }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">关联风险预警</label>
+                        <select class="form-select" name="risk_alert_id">
+                            <option value="">无</option>
+                            {% for alert in alerts %}
+                            <option value="{{ alert.id }}" {% if task and task.risk_alert_id == alert.id %}selected{% elif request.args.get('risk_alert_id')|int == alert.id %}selected{% endif %}>
+                                {{ alert.title }} ({{ alert.ice_house.code }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">任务标题 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="title" value="{{ task.title if task else '' }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">任务描述</label>
+                        <textarea class="form-control" name="description" rows="3">{{ task.description if task else '' }}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">整改要求</label>
+                        <textarea class="form-control" name="requirement" rows="3">{{ task.requirement if task else '' }}</textarea>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">截止日期</label>
+                                <input type="date" class="form-control" name="deadline" value="{{ task.deadline.isoformat() if task and task.deadline else '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">负责人</label>
+                                <input type="text" class="form-control" name="assigned_to" value="{{ task.assigned_to if task else '' }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('rectifications') }}" class="btn btn-secondary">取消</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> 保存
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

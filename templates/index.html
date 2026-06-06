@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}首页概览 - 地下冰窖藏冰巡检系统{% endblock %}
+{% block title %}首页概览 - 冰窖风险预警与闭环处置平台{% endblock %}
 
 {% block content %}
 <div class="mb-4">
@@ -48,22 +48,7 @@
                     </div>
                     <div class="ms-3">
                         <h3 class="mb-0 fw-bold">{{ high_risk_houses }}</h3>
-                        <small class="text-muted">高风险</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4 col-lg-2">
-        <div class="card card-stat h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="stat-icon bg-info bg-opacity-10 text-info">
-                        <i class="bi bi-box-seam"></i>
-                    </div>
-                    <div class="ms-3">
-                        <h3 class="mb-0 fw-bold">{{ total_batches }}</h3>
-                        <small class="text-muted">藏冰批次</small>
+                        <small class="text-muted">高风险冰窖</small>
                     </div>
                 </div>
             </div>
@@ -74,11 +59,11 @@
             <div class="card-body">
                 <div class="d-flex align-items-center">
                     <div class="stat-icon bg-warning bg-opacity-10 text-warning">
-                        <i class="bi bi-clipboard-check"></i>
+                        <i class="bi bi-bell"></i>
                     </div>
                     <div class="ms-3">
-                        <h3 class="mb-0 fw-bold">{{ total_inspections }}</h3>
-                        <small class="text-muted">巡检记录</small>
+                        <h3 class="mb-0 fw-bold">{{ active_alerts }}</h3>
+                        <small class="text-muted">进行中预警</small>
                     </div>
                 </div>
             </div>
@@ -88,12 +73,27 @@
         <div class="card card-stat h-100">
             <div class="card-body">
                 <div class="d-flex align-items-center">
-                    <div class="stat-icon bg-secondary bg-opacity-10 text-secondary">
+                    <div class="stat-icon bg-info bg-opacity-10 text-info">
                         <i class="bi bi-tools"></i>
                     </div>
                     <div class="ms-3">
-                        <h3 class="mb-0 fw-bold">{{ pending_repairs }}</h3>
-                        <small class="text-muted">待修缮</small>
+                        <h3 class="mb-0 fw-bold">{{ pending_rectifications }}</h3>
+                        <small class="text-muted">待整改</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-purple bg-opacity-10 text-purple">
+                        <i class="bi bi-file-earmark-check"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ pending_approvals }}</h3>
+                        <small class="text-muted">待审批</small>
                     </div>
                 </div>
             </div>
@@ -102,6 +102,103 @@
 </div>
 
 <div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">
+                    <i class="bi bi-exclamation-triangle me-2 text-warning"></i>近期风险预警
+                </h5>
+                <a href="{{ url_for('risk_alerts') }}" class="btn btn-sm btn-outline-primary">
+                    查看全部 <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_alerts %}
+                <div class="list-group list-group-flush">
+                    {% for alert in recent_alerts %}
+                    <a href="{{ url_for('risk_alert_detail', alert_id=alert.id) }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">
+                                    {% if alert.severity == 'high' %}
+                                    <span class="badge bg-danger me-2">高风险</span>
+                                    {% elif alert.severity == 'medium' %}
+                                    <span class="badge bg-warning text-dark me-2">中风险</span>
+                                    {% else %}
+                                    <span class="badge bg-success me-2">低风险</span>
+                                    {% endif %}
+                                    {{ alert.title }}
+                                </h6>
+                                <p class="mb-1 small text-muted">{{ alert.ice_house.code }} - {{ alert.description[:30] }}{% if alert.description and alert.description|length > 30 %}...{% endif %}</p>
+                            </div>
+                            {% if alert.status == 'active' %}
+                            <span class="badge bg-danger badge-risk">进行中</span>
+                            {% else %}
+                            <span class="badge bg-success">已解除</span>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">{{ alert.created_at.strftime('%Y-%m-%d %H:%M') if alert.created_at else '' }}</small>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-bell fs-1 mb-3"></i>
+                    <p>暂无风险预警</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">
+                    <i class="bi bi-tools me-2 text-primary"></i>近期整改任务
+                </h5>
+                <a href="{{ url_for('rectifications') }}" class="btn btn-sm btn-outline-primary">
+                    查看全部 <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_rectifications %}
+                <div class="list-group list-group-flush">
+                    {% for task in recent_rectifications %}
+                    <a href="{{ url_for('rectification_detail', task_id=task.id) }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">{{ task.title }}</h6>
+                                <p class="mb-1 small text-muted">{{ task.ice_house.code }} · {{ task.task_no }}</p>
+                            </div>
+                            {% if task.status == 'pending' %}
+                            <span class="badge bg-secondary">待开始</span>
+                            {% elif task.status == 'in_progress' %}
+                            <span class="badge bg-primary">进行中</span>
+                            {% elif task.status == 'completed' %}
+                            <span class="badge bg-info">待复核</span>
+                            {% elif task.status == 'reviewed' %}
+                            <span class="badge bg-success">已完成</span>
+                            {% elif task.status == 'rejected' %}
+                            <span class="badge bg-danger">已驳回</span>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">{{ task.created_at.strftime('%Y-%m-%d') if task.created_at else '' }}</small>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-tools fs-1 mb-3"></i>
+                    <p>暂无整改任务</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-0">
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white py-3">
@@ -173,7 +270,7 @@
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white py-3">
                 <h5 class="mb-0 fw-bold">
-                    <i class="bi bi-tools me-2 text-primary"></i>近期修缮工单
+                    <i class="bi bi-wrench me-2 text-primary"></i>近期修缮工单
                 </h5>
             </div>
             <div class="card-body p-0">
@@ -200,7 +297,7 @@
                 </div>
                 {% else %}
                 <div class="text-center py-5 text-muted">
-                    <i class="bi bi-tools fs-1 mb-3"></i>
+                    <i class="bi bi-wrench fs-1 mb-3"></i>
                     <p>暂无修缮工单</p>
                 </div>
                 {% endif %}
@@ -208,4 +305,9 @@
         </div>
     </div>
 </div>
+
+<style>
+.bg-purple { background-color: #6f42c1; }
+.text-purple { color: #6f42c1; }
+</style>
 {% endblock %}

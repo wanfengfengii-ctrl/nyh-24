@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}审批详情 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-file-earmark-check text-success"></i> 审批详情</h2>
+    <a href="{{ url_for('approvals') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">申请信息</h5>
+                <span class="badge
+                    {% if request.status == 'pending' %}bg-warning text-dark
+                    {% elif request.status == 'approved' %}bg-success
+                    {% elif request.status == 'rejected' %}bg-danger
+                    {% endif %}">
+                    {% if request.status == 'pending' %}待审批
+                    {% elif request.status == 'approved' %}已通过
+                    {% elif request.status == 'rejected' %}已驳回
+                    {% endif %}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">申请ID</label>
+                        <p class="fw-bold">#{{ request.id }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">申请类型</label>
+                        <p class="fw-bold">
+                            {% if request.request_type == 'open' %}
+                            <span class="badge bg-success">开放申请</span>
+                            {% else %}
+                            <span class="badge bg-secondary">关闭申请</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">所属冰窖</label>
+                    <p class="fw-bold">
+                        <a href="{{ url_for('icehouse_detail', house_id=request.ice_house.id) }}">
+                            {{ request.ice_house.code }} - {{ request.ice_house.location }}
+                        </a>
+                    </p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">申请标题</label>
+                    <p class="fw-bold">{{ request.title }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">申请理由</label>
+                    <p>{{ request.reason or '无' }}</p>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="text-muted">申请人</label>
+                        <p>{{ request.applicant or '-' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">申请日期</label>
+                        <p>{{ request.apply_date }}</p>
+                    </div>
+                </div>
+
+                {% if request.status != 'pending' %}
+                <hr>
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="text-muted">审批人</label>
+                        <p>{{ request.approver or '-' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">审批日期</label>
+                        <p>{{ request.approval_date or '-' }}</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">审批意见</label>
+                    <p>{{ request.approval_comment or '无' }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if request.status == 'pending' %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">审批操作</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="mb-3">
+                            <label class="form-label">审批意见</label>
+                            <textarea class="form-control" id="approval_comment" rows="3" placeholder="请填写审批意见..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <form method="post" action="{{ url_for('approval_approve', request_id=request.id) }}" id="approve_form">
+                        <input type="hidden" name="approval_comment" id="approve_comment">
+                        <button type="button" class="btn btn-success" onclick="submitApprove()">
+                            <i class="bi bi-check-circle"></i> 通过申请
+                        </button>
+                    </form>
+                    <form method="post" action="{{ url_for('approval_reject', request_id=request.id) }}" id="reject_form">
+                        <input type="hidden" name="approval_comment" id="reject_comment">
+                        <button type="button" class="btn btn-danger" onclick="submitReject()">
+                            <i class="bi bi-x-circle"></i> 驳回申请
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">冰窖当前状态</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <strong>开放状态：</strong>
+                        {% if request.ice_house.is_open %}
+                        <span class="badge bg-success">已开放</span>
+                        {% else %}
+                        <span class="badge bg-secondary">已关闭</span>
+                        {% endif %}
+                    </li>
+                    <li class="mb-2">
+                        <strong>风险等级：</strong>
+                        {% if request.ice_house.high_risk %}
+                        <span class="badge bg-danger badge-risk">高风险</span>
+                        {% else %}
+                        <span class="badge bg-success">正常</span>
+                        {% endif %}
+                    </li>
+                    <li class="mb-2">
+                        <strong>未完成修缮：</strong>
+                        <span class="badge {% if request.ice_house.has_unfinished_repairs() %}bg-danger{% else %}bg-success{% endif %}">
+                            {{ request.ice_house.repairs | selectattr('status', 'ne', 'completed') | list | length }} 项
+                        </span>
+                    </li>
+                    <li>
+                        <strong>未完成整改：</strong>
+                        <span class="badge {% if request.ice_house.has_pending_rectifications() %}bg-danger{% else %}bg-success{% endif %}">
+                            {{ request.ice_house.rectification_tasks | selectattr('status', 'in', ['pending', 'in_progress']) | list | length }} 项
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function submitApprove() {
+    document.getElementById('approve_comment').value = document.getElementById('approval_comment').value;
+    if (confirm('确定要通过此申请吗？')) {
+        document.getElementById('approve_form').submit();
+    }
+}
+function submitReject() {
+    var comment = document.getElementById('approval_comment').value;
+    if (!comment.trim()) {
+        alert('驳回申请请填写审批意见');
+        return;
+    }
+    document.getElementById('reject_comment').value = comment;
+    if (confirm('确定要驳回此申请吗？')) {
+        document.getElementById('reject_form').submit();
+    }
+}
+</script>
+{% endblock %}

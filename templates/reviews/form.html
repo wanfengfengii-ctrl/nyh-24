@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}复核整改 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-clipboard-check text-warning"></i> 复核整改任务</h2>
+    <a href="{{ url_for('rectification_detail', task_id=task.id) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回详情
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">整改任务信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">任务编号</label>
+                        <p class="fw-bold"><code>{{ task.task_no }}</code></p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">所属冰窖</label>
+                        <p class="fw-bold">{{ task.ice_house.code }} - {{ task.ice_house.location }}</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">任务标题</label>
+                    <p class="fw-bold">{{ task.title }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">整改要求</label>
+                    <p>{{ task.requirement or '暂无要求' }}</p>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <label class="text-muted">实际完成日期</label>
+                    <p>{{ task.actual_finish_date or '-' }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">整改结果说明</label>
+                    <p>{{ task.rectification_result or '暂无' }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">填写复核意见</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">复核日期</label>
+                                <input type="date" class="form-control" name="review_date" value="{{ date.today().isoformat() }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">复核人</label>
+                                <input type="text" class="form-control" name="reviewer" value="{{ current_user.username }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">复核结果 <span class="text-danger">*</span></label>
+                        <div class="d-flex gap-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="result" id="pass" value="pass">
+                                <label class="form-check-label text-success fw-bold" for="pass">
+                                    <i class="bi bi-check-circle"></i> 复核通过
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="result" id="fail" value="fail">
+                                <label class="form-check-label text-danger fw-bold" for="fail">
+                                    <i class="bi bi-x-circle"></i> 复核不通过
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">复核意见</label>
+                        <textarea class="form-control" name="comment" rows="4" placeholder="请填写复核意见..."></textarea>
+                    </div>
+
+                    <div class="alert alert-warning" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>注意：</strong>
+                        复核通过后，关联的风险预警将自动解除，冰窖状态将重新评估。
+                        复核不通过，则整改任务将被驳回，需要重新整改。
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('rectification_detail', task_id=task.id) }}" class="btn btn-secondary">取消</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-send"></i> 提交复核
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}完成整改 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-check-circle text-success"></i> 完成整改</h2>
+    <a href="{{ url_for('rectification_detail', task_id=task.id) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回详情
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">整改任务信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">任务编号</label>
+                        <p class="fw-bold"><code>{{ task.task_no }}</code></p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">所属冰窖</label>
+                        <p class="fw-bold">{{ task.ice_house.code }} - {{ task.ice_house.location }}</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">任务标题</label>
+                    <p class="fw-bold">{{ task.title }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">整改要求</label>
+                    <p>{{ task.requirement or '暂无要求' }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">填写整改结果</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label class="form-label">实际完成日期</label>
+                        <input type="date" class="form-control" name="actual_finish_date" value="{{ date.today().isoformat() }}">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">整改结果说明 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" name="rectification_result" rows="5" required placeholder="请详细描述整改措施和结果..."></textarea>
+                    </div>
+
+                    <div class="alert alert-info" role="alert">
+                        <i class="bi bi-info-circle"></i> 提交完成后，整改任务将进入待复核状态，需复核人员审核通过后方可完成。
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('rectification_detail', task_id=task.id) }}" class="btn btn-secondary">取消</a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-circle"></i> 提交整改结果
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

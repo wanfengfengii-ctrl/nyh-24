@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}整改任务详情 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-tools text-primary"></i> 整改任务详情</h2>
+    <a href="{{ url_for('rectifications') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">基本信息</h5>
+                <span class="badge
+                    {% if task.status == 'pending' %}bg-secondary
+                    {% elif task.status == 'in_progress' %}bg-primary
+                    {% elif task.status == 'completed' %}bg-info
+                    {% elif task.status == 'reviewed' %}bg-success
+                    {% elif task.status == 'rejected' %}bg-danger
+                    {% endif %}">
+                    {% if task.status == 'pending' %}待开始
+                    {% elif task.status == 'in_progress' %}进行中
+                    {% elif task.status == 'completed' %}待复核
+                    {% elif task.status == 'reviewed' %}已完成
+                    {% elif task.status == 'rejected' %}已驳回
+                    {% endif %}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="text-muted">任务编号</label>
+                        <p class="fw-bold"><code>{{ task.task_no }}</code></p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted">所属冰窖</label>
+                        <p class="fw-bold">
+                            <a href="{{ url_for('icehouse_detail', house_id=task.ice_house.id) }}">
+                                {{ task.ice_house.code }} - {{ task.ice_house.location }}
+                            </a>
+                        </p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">任务标题</label>
+                    <p class="fw-bold">{{ task.title }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">任务描述</label>
+                    <p>{{ task.description or '暂无描述' }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">整改要求</label>
+                    <p>{{ task.requirement or '暂无要求' }}</p>
+                </div>
+                <div class="row">
+                    <div class="col-md-4">
+                        <label class="text-muted">截止日期</label>
+                        <p>{{ task.deadline or '-' }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="text-muted">负责人</label>
+                        <p>{{ task.assigned_to or '-' }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="text-muted">创建时间</label>
+                        <p>{{ task.created_at.strftime('%Y-%m-%d %H:%M') if task.created_at else '-' }}</p>
+                    </div>
+                </div>
+
+                {% if task.status in ['completed', 'reviewed', 'rejected'] %}
+                <hr>
+                <div class="mb-3">
+                    <label class="text-muted">实际完成日期</label>
+                    <p>{{ task.actual_finish_date or '-' }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted">整改结果</label>
+                    <p>{{ task.rectification_result or '暂无' }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            {% if task.status == 'pending' %}
+            <form method="post" action="{{ url_for('rectification_start', task_id=task.id) }}">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-play-circle"></i> 开始整改
+                </button>
+            </form>
+            {% endif %}
+
+            {% if task.status in ['in_progress', 'rejected'] %}
+            <a href="{{ url_for('rectification_complete', task_id=task.id) }}" class="btn btn-success">
+                <i class="bi bi-check-circle"></i> 完成整改
+            </a>
+            {% endif %}
+
+            {% if task.status == 'completed' %}
+            <a href="{{ url_for('review_create', task_id=task.id) }}" class="btn btn-warning">
+                <i class="bi bi-clipboard-check"></i> 去复核
+            </a>
+            {% endif %}
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">复核记录</h5>
+            </div>
+            <div class="card-body">
+                {% if reviews %}
+                <div class="timeline">
+                    {% for review in reviews %}
+                    <div class="card mb-2 border-start border-{% if review.result == 'pass' %}success{% else %}danger{% endif %} border-2">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="badge
+                                    {% if review.result == 'pass' %}bg-success
+                                    {% else %}bg-danger
+                                    {% endif %}">
+                                    {% if review.result == 'pass' %}复核通过{% else %}复核不通过{% endif %}
+                                </span>
+                                <small class="text-muted">{{ review.review_date }}</small>
+                            </div>
+                            <p class="mb-1"><strong>复核人：</strong>{{ review.reviewer or '未知' }}</p>
+                            <p class="mb-0"><strong>复核意见：</strong>{{ review.comment or '无' }}</p>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted text-center mb-0">暂无复核记录</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        {% if task.risk_alert %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">关联风险预警</h5>
+            </div>
+            <div class="card-body">
+                <a href="{{ url_for('risk_alert_detail', alert_id=task.risk_alert.id) }}">
+                    <h6>{{ task.risk_alert.title }}</h6>
+                </a>
+                <p class="text-muted small mb-0">
+                    {% if task.risk_alert.severity == 'high' %}
+                    <span class="badge bg-danger">高风险</span>
+                    {% elif task.risk_alert.severity == 'medium' %}
+                    <span class="badge bg-warning text-dark">中风险</span>
+                    {% else %}
+                    <span class="badge bg-success">低风险</span>
+                    {% endif %}
+                    {{ task.risk_alert.status }}
+                </p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">处理进度</h5>
+            </div>
+            <div class="card-body">
+                <div class="progress-steps">
+                    <div class="step {% if task.status != 'pending' %}done{% endif %}">
+                        <div class="step-icon {% if task.status != 'pending' %}bg-success{% else %}bg-secondary{% endif %}">
+                            <i class="bi bi-list-task"></i>
+                        </div>
+                        <div class="step-label">待开始</div>
+                    </div>
+                    <div class="step {% if task.status in ['in_progress', 'completed', 'reviewed', 'rejected'] %}done{% endif %}">
+                        <div class="step-icon {% if task.status in ['in_progress', 'completed', 'reviewed', 'rejected'] %}bg-primary{% else %}bg-secondary{% endif %}">
+                            <i class="bi bi-play-circle"></i>
+                        </div>
+                        <div class="step-label">整改中</div>
+                    </div>
+                    <div class="step {% if task.status in ['completed', 'reviewed'] %}done{% endif %}">
+                        <div class="step-icon {% if task.status in ['completed', 'reviewed'] %}bg-info{% else %}bg-secondary{% endif %}">
+                            <i class="bi bi-clipboard-check"></i>
+                        </div>
+                        <div class="step-label">待复核</div>
+                    </div>
+                    <div class="step {% if task.status == 'reviewed' %}done{% endif %}">
+                        <div class="step-icon {% if task.status == 'reviewed' %}bg-success{% else %}bg-secondary{% endif %}">
+                            <i class="bi bi-check2-circle"></i>
+                        </div>
+                        <div class="step-label">已完成</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.progress-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.step {
+    display: flex;
+    align-items: center;
+    position: relative;
+    padding-left: 40px;
+    padding-bottom: 20px;
+    min-height: 50px;
+}
+.step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 19px;
+    top: 36px;
+    bottom: 0;
+    width: 2px;
+    background-color: #dee2e6;
+}
+.step.done:not(:last-child)::before {
+    background-color: #198754;
+}
+.step-icon {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 18px;
+}
+.step-label {
+    font-weight: 500;
+}
+</style>
+{% endblock %}

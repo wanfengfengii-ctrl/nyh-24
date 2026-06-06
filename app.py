@@ -11,7 +11,10 @@ from flask_login import (
     login_required, current_user
 )
 
-from models import db, User, IceHouse, IceBatch, Inspection, MeltLoss, Repair
+from models import (
+    db, User, IceHouse, IceBatch, Inspection, MeltLoss, Repair,
+    RiskAlert, RectificationTask, ReviewRecord, ApprovalRequest, Notification
+)
 
 
 def create_app():
@@ -71,12 +74,29 @@ def create_app():
         total_inspections = Inspection.query.count()
         pending_repairs = Repair.query.filter(Repair.status != 'completed').count()
 
+        active_alerts = RiskAlert.query.filter_by(status='active').count()
+        pending_rectifications = RectificationTask.query.filter(
+            RectificationTask.status.in_(['pending', 'in_progress'])
+        ).count()
+        pending_reviews = RectificationTask.query.filter_by(status='completed').filter(
+            ~RectificationTask.reviews.any(ReviewRecord.result == 'pass')
+        ).count()
+        pending_approvals = ApprovalRequest.query.filter_by(status='pending').count()
+
         recent_inspections = Inspection.query.order_by(
             Inspection.inspection_date.desc()
         ).limit(5).all()
 
         recent_repairs = Repair.query.order_by(
             Repair.report_date.desc()
+        ).limit(5).all()
+
+        recent_alerts = RiskAlert.query.order_by(
+            RiskAlert.created_at.desc()
+        ).limit(5).all()
+
+        recent_rectifications = RectificationTask.query.order_by(
+            RectificationTask.created_at.desc()
         ).limit(5).all()
 
         return render_template('index.html',
@@ -86,8 +106,14 @@ def create_app():
                                total_batches=total_batches,
                                total_inspections=total_inspections,
                                pending_repairs=pending_repairs,
+                               active_alerts=active_alerts,
+                               pending_rectifications=pending_rectifications,
+                               pending_reviews=pending_reviews,
+                               pending_approvals=pending_approvals,
                                recent_inspections=recent_inspections,
-                               recent_repairs=recent_repairs)
+                               recent_repairs=recent_repairs,
+                               recent_alerts=recent_alerts,
+                               recent_rectifications=recent_rectifications)
 
     @app.route('/icehouses')
     @login_required
@@ -165,9 +191,11 @@ def create_app():
                 flash('冰窖编号已存在', 'danger')
                 return render_template('icehouses/form.html', house=house)
 
-            if is_open and house.has_unfinished_repairs():
-                flash('存在未完成修缮的冰窖不能设置为开放状态', 'danger')
-                return render_template('icehouses/form.html', house=house)
+            if is_open:
+                can_open, msg = house.can_be_opened()
+                if not can_open:
+                    flash(f'不能设置为开放状态：{msg}', 'danger')
+                    return render_template('icehouses/form.html', house=house)
 
             house.code = code
             house.location = location
@@ -338,7 +366,23 @@ def create_app():
             db.session.flush()
 
             house = IceHouse.query.get(ice_house_id)
-            house.update_risk_status()
+            has_seepage, has_severe_melt = house.update_risk_status()
+
+            if has_seepage:
+                alert = create_risk_alert(
+                    ice_house_id, 'seepage', 'high',
+                    '冰窖渗水风险', f'巡检发现冰窖 {house.code} 存在渗水现象',
+                    'inspection', inspection.id
+                )
+                auto_create_rectification(alert)
+
+            if has_severe_melt:
+                alert = create_risk_alert(
+                    ice_house_id, 'severe_melt', 'high',
+                    '严重融损风险', f'巡检发现冰窖 {house.code} 融损情况严重',
+                    'inspection', inspection.id
+                )
+                auto_create_rectification(alert)
 
             db.session.commit()
             flash('巡检记录创建成功', 'success')
@@ -379,7 +423,23 @@ def create_app():
             inspection.suggestions = suggestions
 
             house = IceHouse.query.get(ice_house_id)
-            house.update_risk_status()
+            has_seepage, has_severe_melt = house.update_risk_status()
+
+            if has_seepage:
+                alert = create_risk_alert(
+                    ice_house_id, 'seepage', 'high',
+                    '冰窖渗水风险', f'巡检发现冰窖 {house.code} 存在渗水现象',
+                    'inspection', inspection.id
+                )
+                auto_create_rectification(alert)
+
+            if has_severe_melt:
+                alert = create_risk_alert(
+                    ice_house_id, 'severe_melt', 'high',
+                    '严重融损风险', f'巡检发现冰窖 {house.code} 融损情况严重',
+                    'inspection', inspection.id
+                )
+                auto_create_rectification(alert)
 
             db.session.commit()
             flash('巡检记录更新成功', 'success')
@@ -571,6 +631,739 @@ def create_app():
             {'id': b.id, 'label': f'{b.entry_date} - {b.ice_count}块 (剩余{b.current_remaining})'}
             for b in batches
         ])
+
+    def generate_task_no():
+        from datetime import datetime as dt
+        prefix = 'ZG' + dt.now().strftime('%Y%m%d')
+        count = RectificationTask.query.filter(
+            RectificationTask.task_no.like(prefix + '%')
+        ).count()
+        return f'{prefix}{count + 1:03d}'
+
+    def create_notification(user_id, type, title, content, related_type=None, related_id=None):
+        notification = Notification(
+            user_id=user_id,
+            type=type,
+            title=title,
+            content=content,
+            related_type=related_type,
+            related_id=related_id
+        )
+        db.session.add(notification)
+
+    def create_risk_alert(ice_house_id, alert_type, severity, title, description, source_type=None, source_id=None):
+        existing = RiskAlert.query.filter_by(
+            ice_house_id=ice_house_id,
+            alert_type=alert_type,
+            source_type=source_type,
+            source_id=source_id,
+            status='active'
+        ).first()
+        if existing:
+            return existing
+        alert = RiskAlert(
+            ice_house_id=ice_house_id,
+            alert_type=alert_type,
+            severity=severity,
+            title=title,
+            description=description,
+            source_type=source_type,
+            source_id=source_id
+        )
+        db.session.add(alert)
+        db.session.flush()
+
+        admin = User.query.filter_by(username='admin').first()
+        if admin:
+            create_notification(
+                admin.id, 'risk', f'新风险预警：{title}',
+                f'冰窖 {alert.ice_house.code} 触发风险预警：{title}',
+                'risk_alert', alert.id
+            )
+        return alert
+
+    def auto_create_rectification(alert):
+        existing = RectificationTask.query.filter_by(
+            risk_alert_id=alert.id,
+            status='pending'
+        ).first()
+        if existing:
+            return existing
+
+        task = RectificationTask(
+            ice_house_id=alert.ice_house_id,
+            risk_alert_id=alert.id,
+            task_no=generate_task_no(),
+            title=f'整改：{alert.title}',
+            description=alert.description,
+            requirement='请尽快完成整改，消除安全隐患',
+            status='pending'
+        )
+        db.session.add(task)
+        db.session.flush()
+
+        admin = User.query.filter_by(username='admin').first()
+        if admin:
+            create_notification(
+                admin.id, 'rectification',
+                f'新整改任务：{task.title}',
+                f'冰窖 {alert.ice_house.code} 产生新的整改任务：{task.title}',
+                'rectification', task.id
+            )
+        return task
+
+    # ========== 风险预警中心 ==========
+    @app.route('/risk-alerts')
+    @login_required
+    def risk_alerts():
+        status = request.args.get('status', '')
+        severity = request.args.get('severity', '')
+        ice_house_id = request.args.get('ice_house_id', type=int)
+
+        query = RiskAlert.query
+        if status:
+            query = query.filter_by(status=status)
+        if severity:
+            query = query.filter_by(severity=severity)
+        if ice_house_id:
+            query = query.filter_by(ice_house_id=ice_house_id)
+
+        alerts = query.order_by(RiskAlert.created_at.desc()).all()
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        return render_template('risk_alerts/list.html', alerts=alerts, houses=houses)
+
+    @app.route('/risk-alerts/<int:alert_id>')
+    @login_required
+    def risk_alert_detail(alert_id):
+        alert = RiskAlert.query.get_or_404(alert_id)
+        return render_template('risk_alerts/detail.html', alert=alert)
+
+    @app.route('/risk-alerts/<int:alert_id>/resolve', methods=['POST'])
+    @login_required
+    def risk_alert_resolve(alert_id):
+        alert = RiskAlert.query.get_or_404(alert_id)
+        alert.status = 'resolved'
+        alert.resolved_at = datetime.utcnow()
+        db.session.commit()
+        flash('风险已解除', 'success')
+        return redirect(url_for('risk_alert_detail', alert_id=alert_id))
+
+    # ========== 整改任务 ==========
+    @app.route('/rectifications')
+    @login_required
+    def rectifications():
+        status = request.args.get('status', '')
+        ice_house_id = request.args.get('ice_house_id', type=int)
+
+        query = RectificationTask.query
+        if status:
+            query = query.filter_by(status=status)
+        if ice_house_id:
+            query = query.filter_by(ice_house_id=ice_house_id)
+
+        tasks = query.order_by(RectificationTask.created_at.desc()).all()
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        return render_template('rectifications/list.html', tasks=tasks, houses=houses)
+
+    @app.route('/rectifications/new', methods=['GET', 'POST'])
+    @login_required
+    def rectification_new():
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        alerts = RiskAlert.query.filter_by(status='active').all()
+
+        if request.method == 'POST':
+            ice_house_id = request.form.get('ice_house_id', type=int)
+            risk_alert_id = request.form.get('risk_alert_id', type=int) or None
+            title = request.form.get('title', '').strip()
+            description = request.form.get('description', '').strip()
+            requirement = request.form.get('requirement', '').strip()
+            deadline_str = request.form.get('deadline')
+            assigned_to = request.form.get('assigned_to', '').strip()
+
+            if not ice_house_id or not title:
+                flash('请填写必填信息', 'danger')
+                return render_template('rectifications/form.html', task=None, houses=houses, alerts=alerts)
+
+            deadline = None
+            if deadline_str:
+                deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+
+            task = RectificationTask(
+                ice_house_id=ice_house_id,
+                risk_alert_id=risk_alert_id,
+                task_no=generate_task_no(),
+                title=title,
+                description=description,
+                requirement=requirement,
+                deadline=deadline,
+                assigned_to=assigned_to,
+                status='pending',
+                created_by=current_user.id
+            )
+            db.session.add(task)
+            db.session.commit()
+            flash('整改任务创建成功', 'success')
+            return redirect(url_for('rectification_detail', task_id=task.id))
+
+        return render_template('rectifications/form.html', task=None, houses=houses, alerts=alerts)
+
+    @app.route('/rectifications/<int:task_id>')
+    @login_required
+    def rectification_detail(task_id):
+        task = RectificationTask.query.get_or_404(task_id)
+        reviews = ReviewRecord.query.filter_by(rectification_task_id=task_id).order_by(
+            ReviewRecord.created_at.desc()
+        ).all()
+        return render_template('rectifications/detail.html', task=task, reviews=reviews)
+
+    @app.route('/rectifications/<int:task_id>/start', methods=['POST'])
+    @login_required
+    def rectification_start(task_id):
+        task = RectificationTask.query.get_or_404(task_id)
+        if task.status != 'pending':
+            flash('任务状态不允许开始', 'danger')
+            return redirect(url_for('rectification_detail', task_id=task_id))
+        task.status = 'in_progress'
+        db.session.commit()
+        flash('整改任务已开始', 'success')
+        return redirect(url_for('rectification_detail', task_id=task_id))
+
+    @app.route('/rectifications/<int:task_id>/complete', methods=['GET', 'POST'])
+    @login_required
+    def rectification_complete(task_id):
+        task = RectificationTask.query.get_or_404(task_id)
+
+        if request.method == 'POST':
+            result = request.form.get('rectification_result', '').strip()
+            finish_date_str = request.form.get('actual_finish_date')
+
+            if not result:
+                flash('请填写整改结果', 'danger')
+                return render_template('rectifications/complete.html', task=task)
+
+            finish_date = date.today()
+            if finish_date_str:
+                finish_date = datetime.strptime(finish_date_str, '%Y-%m-%d').date()
+
+            task.status = 'completed'
+            task.rectification_result = result
+            task.actual_finish_date = finish_date
+            db.session.commit()
+
+            admin = User.query.filter_by(username='admin').first()
+            if admin:
+                create_notification(
+                    admin.id, 'review',
+                    f'整改待复核：{task.title}',
+                    f'冰窖 {task.ice_house.code} 的整改任务已完成，请安排复核',
+                    'rectification', task.id
+                )
+
+            flash('整改已完成，请等待复核', 'success')
+            return redirect(url_for('rectification_detail', task_id=task_id))
+
+        return render_template('rectifications/complete.html', task=task)
+
+    # ========== 复核记录 ==========
+    @app.route('/reviews')
+    @login_required
+    def reviews():
+        status = request.args.get('status', 'pending')
+        if status == 'pending':
+            tasks = RectificationTask.query.filter_by(status='completed').filter(
+                ~RectificationTask.reviews.any(ReviewRecord.result == 'pass')
+            ).order_by(RectificationTask.updated_at.desc()).all()
+        else:
+            all_tasks = RectificationTask.query.filter(RectificationTask.reviews.any()).all()
+            tasks = [t for t in all_tasks if any(r.result == 'pass' for r in t.reviews)]
+
+        return render_template('reviews/list.html', tasks=tasks, status=status)
+
+    @app.route('/rectifications/<int:task_id>/review', methods=['GET', 'POST'])
+    @login_required
+    def review_create(task_id):
+        task = RectificationTask.query.get_or_404(task_id)
+
+        if request.method == 'POST':
+            result = request.form.get('result', '')
+            comment = request.form.get('comment', '').strip()
+            reviewer = request.form.get('reviewer', '').strip()
+            review_date_str = request.form.get('review_date')
+
+            if not result:
+                flash('请选择复核结果', 'danger')
+                return render_template('reviews/form.html', task=task)
+
+            review_date = date.today()
+            if review_date_str:
+                review_date = datetime.strptime(review_date_str, '%Y-%m-%d').date()
+
+            review = ReviewRecord(
+                rectification_task_id=task_id,
+                review_date=review_date,
+                reviewer=reviewer or current_user.username,
+                result=result,
+                comment=comment
+            )
+            db.session.add(review)
+
+            if result == 'pass':
+                task.status = 'reviewed'
+                if task.risk_alert:
+                    task.risk_alert.status = 'resolved'
+                    task.risk_alert.resolved_at = datetime.utcnow()
+                task.ice_house.update_risk_status()
+
+                admin = User.query.filter_by(username='admin').first()
+                if admin:
+                    create_notification(
+                        admin.id, 'review',
+                        f'复核通过：{task.title}',
+                        f'冰窖 {task.ice_house.code} 的整改任务复核通过',
+                        'rectification', task.id
+                    )
+            else:
+                task.status = 'rejected'
+
+                admin = User.query.filter_by(username='admin').first()
+                if admin:
+                    create_notification(
+                        admin.id, 'review',
+                        f'复核未通过：{task.title}',
+                        f'冰窖 {task.ice_house.code} 的整改任务复核未通过，请重新整改',
+                        'rectification', task.id
+                    )
+
+            db.session.commit()
+            flash('复核记录已提交', 'success')
+            return redirect(url_for('rectification_detail', task_id=task_id))
+
+        return render_template('reviews/form.html', task=task)
+
+    # ========== 开放审批流 ==========
+    @app.route('/approvals')
+    @login_required
+    def approvals():
+        status = request.args.get('status', '')
+        query = ApprovalRequest.query
+        if status:
+            query = query.filter_by(status=status)
+        requests = query.order_by(ApprovalRequest.created_at.desc()).all()
+        return render_template('approvals/list.html', requests=requests)
+
+    @app.route('/approvals/new', methods=['GET', 'POST'])
+    @login_required
+    def approval_new():
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+
+        if request.method == 'POST':
+            ice_house_id = request.form.get('ice_house_id', type=int)
+            reason = request.form.get('reason', '').strip()
+            applicant = request.form.get('applicant', '').strip()
+            request_type = request.form.get('request_type', 'open')
+
+            if not ice_house_id:
+                flash('请选择冰窖', 'danger')
+                return render_template('approvals/form.html', request=None, houses=houses)
+
+            house = IceHouse.query.get(ice_house_id)
+            if not house:
+                flash('冰窖不存在', 'danger')
+                return render_template('approvals/form.html', request=None, houses=houses)
+
+            if request_type == 'open' and house.is_open:
+                flash('冰窖已处于开放状态', 'warning')
+                return render_template('approvals/form.html', request=None, houses=houses)
+
+            can_open, msg = house.can_be_opened()
+            if request_type == 'open' and not can_open:
+                flash(f'无法申请开放：{msg}', 'danger')
+                return render_template('approvals/form.html', request=None, houses=houses)
+
+            title = f'{"开放" if request_type == "open" else "关闭"}冰窖申请：{house.code}'
+
+            approval = ApprovalRequest(
+                ice_house_id=ice_house_id,
+                request_type=request_type,
+                title=title,
+                reason=reason,
+                applicant=applicant or current_user.username,
+                apply_date=date.today(),
+                status='pending'
+            )
+            db.session.add(approval)
+            db.session.commit()
+
+            admin = User.query.filter_by(username='admin').first()
+            if admin:
+                create_notification(
+                    admin.id, 'approval',
+                    f'新审批申请：{title}',
+                    f'冰窖 {house.code} 有新的{"开放" if request_type == "open" else "关闭"}申请，请处理',
+                    'approval', approval.id
+                )
+
+            flash('审批申请已提交', 'success')
+            return redirect(url_for('approval_detail', request_id=approval.id))
+
+        return render_template('approvals/form.html', request=None, houses=houses)
+
+    @app.route('/approvals/<int:request_id>')
+    @login_required
+    def approval_detail(request_id):
+        req = ApprovalRequest.query.get_or_404(request_id)
+        return render_template('approvals/detail.html', request=req)
+
+    @app.route('/approvals/<int:request_id>/approve', methods=['POST'])
+    @login_required
+    def approval_approve(request_id):
+        req = ApprovalRequest.query.get_or_404(request_id)
+        if req.status != 'pending':
+            flash('申请已处理', 'warning')
+            return redirect(url_for('approval_detail', request_id=request_id))
+
+        comment = request.form.get('approval_comment', '').strip()
+
+        if req.request_type == 'open':
+            can_open, msg = req.ice_house.can_be_opened()
+            if not can_open:
+                flash(f'无法开放：{msg}', 'danger')
+                return redirect(url_for('approval_detail', request_id=request_id))
+            req.ice_house.is_open = True
+        else:
+            req.ice_house.is_open = False
+
+        req.status = 'approved'
+        req.approver = current_user.username
+        req.approval_date = date.today()
+        req.approval_comment = comment
+
+        create_notification(
+            None, 'approval',
+            f'审批通过：{req.title}',
+            f'冰窖 {req.ice_house.code} 的{"开放" if req.request_type == "open" else "关闭"}申请已通过',
+            'approval', req.id
+        )
+
+        db.session.commit()
+        flash('审批已通过', 'success')
+        return redirect(url_for('approval_detail', request_id=request_id))
+
+    @app.route('/approvals/<int:request_id>/reject', methods=['POST'])
+    @login_required
+    def approval_reject(request_id):
+        req = ApprovalRequest.query.get_or_404(request_id)
+        if req.status != 'pending':
+            flash('申请已处理', 'warning')
+            return redirect(url_for('approval_detail', request_id=request_id))
+
+        comment = request.form.get('approval_comment', '').strip()
+        if not comment:
+            flash('请填写驳回原因', 'danger')
+            return redirect(url_for('approval_detail', request_id=request_id))
+
+        req.status = 'rejected'
+        req.approver = current_user.username
+        req.approval_date = date.today()
+        req.approval_comment = comment
+
+        create_notification(
+            None, 'approval',
+            f'审批驳回：{req.title}',
+            f'冰窖 {req.ice_house.code} 的申请被驳回：{comment}',
+            'approval', req.id
+        )
+
+        db.session.commit()
+        flash('审批已驳回', 'info')
+        return redirect(url_for('approval_detail', request_id=request_id))
+
+    # ========== 消息提醒 ==========
+    @app.route('/notifications')
+    @login_required
+    def notifications():
+        all_notifications = Notification.query.filter(
+            (Notification.user_id == current_user.id) | (Notification.user_id.is_(None))
+        ).order_by(Notification.created_at.desc()).limit(50).all()
+
+        unread_count = Notification.query.filter(
+            ((Notification.user_id == current_user.id) | (Notification.user_id.is_(None))) &
+            (Notification.is_read == False)
+        ).count()
+
+        return render_template('notifications/list.html',
+                               notifications=all_notifications,
+                               unread_count=unread_count)
+
+    @app.route('/notifications/<int:notif_id>/read', methods=['POST'])
+    @login_required
+    def notification_read(notif_id):
+        notif = Notification.query.get_or_404(notif_id)
+        notif.is_read = True
+        db.session.commit()
+        return jsonify({'success': True})
+
+    @app.route('/notifications/read-all', methods=['POST'])
+    @login_required
+    def notifications_read_all():
+        Notification.query.filter(
+            ((Notification.user_id == current_user.id) | (Notification.user_id.is_(None))) &
+            (Notification.is_read == False)
+        ).update({'is_read': True})
+        db.session.commit()
+        flash('全部标记已读', 'success')
+        return redirect(url_for('notifications'))
+
+    @app.context_processor
+    def inject_notifications():
+        if current_user.is_authenticated:
+            unread_count = Notification.query.filter(
+                ((Notification.user_id == current_user.id) | (Notification.user_id.is_(None))) &
+                (Notification.is_read == False)
+            ).count()
+            return {'unread_notification_count': unread_count}
+        return {}
+
+    # ========== 趋势分析 ==========
+    @app.route('/trends')
+    @login_required
+    def trends():
+        ice_house_id = request.args.get('ice_house_id', type=int)
+        batch_id = request.args.get('batch_id', type=int)
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        batches = []
+        if ice_house_id:
+            batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).order_by(
+                IceBatch.entry_date.desc()
+            ).all()
+
+        temp_data = []
+        humidity_data = []
+        melt_loss_data = []
+        melt_rate_data = []
+        labels = []
+
+        if ice_house_id and start_date_str and end_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+            if batch_id:
+                batch = IceBatch.query.get(batch_id)
+                if batch:
+                    losses = MeltLoss.query.filter_by(batch_id=batch_id).filter(
+                        MeltLoss.record_date.between(start_date, end_date)
+                    ).order_by(MeltLoss.record_date).all()
+
+                    if losses:
+                        labels = [l.record_date.isoformat() for l in losses]
+                        melt_loss_data = [l.loss_amount for l in losses]
+
+                        cumulative = 0
+                        for loss in losses:
+                            cumulative += loss.loss_amount
+                            rate = round((cumulative / batch.ice_count) * 100, 2) if batch.ice_count > 0 else 0
+                            melt_rate_data.append(rate)
+            else:
+                inspections = Inspection.query.filter_by(ice_house_id=ice_house_id).filter(
+                    Inspection.inspection_date.between(start_date, end_date)
+                ).order_by(Inspection.inspection_date).all()
+
+                if inspections:
+                    labels = [i.inspection_date.isoformat() for i in inspections]
+                    temp_data = [i.temperature for i in inspections]
+                    humidity_data = [i.humidity for i in inspections]
+
+                house_losses = MeltLoss.query.filter_by(ice_house_id=ice_house_id).filter(
+                    MeltLoss.record_date.between(start_date, end_date)
+                ).order_by(MeltLoss.record_date).all()
+
+                if house_losses and not labels:
+                    labels = [l.record_date.isoformat() for l in house_losses]
+                melt_loss_data = [l.loss_amount for l in house_losses]
+
+                house_batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).all()
+                total_ice = sum(b.ice_count for b in house_batches)
+                cumulative_loss = 0
+                date_loss_map = {}
+                for loss in house_losses:
+                    key = loss.record_date.isoformat()
+                    date_loss_map[key] = date_loss_map.get(key, 0) + loss.loss_amount
+
+                if total_ice > 0:
+                    cumulative = 0
+                    for label in labels:
+                        cumulative += date_loss_map.get(label, 0)
+                        rate = round((cumulative / total_ice) * 100, 2)
+                        melt_rate_data.append(rate)
+
+        summary = {}
+        if ice_house_id and start_date_str and end_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            total_loss = db.session.query(db.func.sum(MeltLoss.loss_amount)).filter(
+                MeltLoss.ice_house_id == ice_house_id,
+                MeltLoss.record_date.between(start_date, end_date)
+            ).scalar() or 0
+
+            if batch_id:
+                batch = IceBatch.query.get(batch_id)
+                if batch:
+                    summary = {
+                        'total_ice': batch.ice_count,
+                        'total_loss': total_loss,
+                        'melt_rate': round((total_loss / batch.ice_count) * 100, 2) if batch.ice_count > 0 else 0,
+                        'remaining': batch.current_remaining
+                    }
+            else:
+                house = IceHouse.query.get(ice_house_id)
+                house_batches = IceBatch.query.filter_by(ice_house_id=ice_house_id).all()
+                total_ice = sum(b.ice_count for b in house_batches)
+                total_remaining = sum(b.current_remaining for b in house_batches)
+                summary = {
+                    'total_ice': total_ice,
+                    'total_loss': total_loss,
+                    'melt_rate': round((total_loss / total_ice) * 100, 2) if total_ice > 0 else 0,
+                    'remaining': total_remaining
+                }
+
+        return render_template('trends/index.html',
+                               houses=houses,
+                               batches=batches,
+                               ice_house_id=ice_house_id,
+                               batch_id=batch_id,
+                               start_date=start_date_str,
+                               end_date=end_date_str,
+                               labels=labels,
+                               temp_data=temp_data,
+                               humidity_data=humidity_data,
+                               melt_loss_data=melt_loss_data,
+                               melt_rate_data=melt_rate_data,
+                               summary=summary)
+
+    # ========== 导出报表 ==========
+    @app.route('/export')
+    @login_required
+    def export_page():
+        houses = IceHouse.query.order_by(IceHouse.code).all()
+        return render_template('export/index.html', houses=houses)
+
+    @app.route('/export/data', methods=['POST'])
+    @login_required
+    def export_data():
+        export_type = request.form.get('export_type', 'inspections')
+        ice_house_id = request.form.get('ice_house_id', type=int)
+        start_date_str = request.form.get('start_date', '')
+        end_date_str = request.form.get('end_date', '')
+
+        import csv
+        from io import StringIO
+        from flask import Response
+
+        start_date = None
+        end_date = None
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+        output = StringIO()
+        writer = csv.writer(output)
+
+        if export_type == 'inspections':
+            query = Inspection.query
+            if ice_house_id:
+                query = query.filter_by(ice_house_id=ice_house_id)
+            if start_date:
+                query = query.filter(Inspection.inspection_date >= start_date)
+            if end_date:
+                query = query.filter(Inspection.inspection_date <= end_date)
+            records = query.order_by(Inspection.inspection_date).all()
+
+            writer.writerow(['冰窖编号', '巡检日期', '温度(℃)', '湿度(%)', '是否渗水', '融损程度', '建议'])
+            for r in records:
+                writer.writerow([
+                    r.ice_house.code,
+                    r.inspection_date,
+                    r.temperature,
+                    r.humidity,
+                    '是' if r.seepage else '否',
+                    r.melt_level,
+                    r.suggestions or ''
+                ])
+            filename = f'inspections_{date.today()}.csv'
+
+        elif export_type == 'melt_losses':
+            query = MeltLoss.query
+            if ice_house_id:
+                query = query.filter_by(ice_house_id=ice_house_id)
+            if start_date:
+                query = query.filter(MeltLoss.record_date >= start_date)
+            if end_date:
+                query = query.filter(MeltLoss.record_date <= end_date)
+            records = query.order_by(MeltLoss.record_date).all()
+
+            writer.writerow(['冰窖编号', '批次ID', '记录日期', '融损数量', '原因'])
+            for r in records:
+                writer.writerow([
+                    r.ice_house.code,
+                    r.batch_id,
+                    r.record_date,
+                    r.loss_amount,
+                    r.reason or ''
+                ])
+            filename = f'melt_losses_{date.today()}.csv'
+
+        elif export_type == 'rectifications':
+            query = RectificationTask.query
+            if ice_house_id:
+                query = query.filter_by(ice_house_id=ice_house_id)
+            records = query.order_by(RectificationTask.created_at).all()
+
+            writer.writerow(['任务编号', '冰窖编号', '标题', '状态', '截止日期', '完成日期', '整改结果'])
+            for r in records:
+                writer.writerow([
+                    r.task_no,
+                    r.ice_house.code,
+                    r.title,
+                    r.status,
+                    r.deadline or '',
+                    r.actual_finish_date or '',
+                    r.rectification_result or ''
+                ])
+            filename = f'rectifications_{date.today()}.csv'
+
+        elif export_type == 'risk_alerts':
+            query = RiskAlert.query
+            if ice_house_id:
+                query = query.filter_by(ice_house_id=ice_house_id)
+            records = query.order_by(RiskAlert.created_at).all()
+
+            writer.writerow(['冰窖编号', '预警类型', '严重程度', '标题', '状态', '创建时间', '解除时间'])
+            for r in records:
+                writer.writerow([
+                    r.ice_house.code,
+                    r.alert_type,
+                    r.severity,
+                    r.title,
+                    r.status,
+                    r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '',
+                    r.resolved_at.strftime('%Y-%m-%d %H:%M') if r.resolved_at else ''
+                ])
+            filename = f'risk_alerts_{date.today()}.csv'
+
+        else:
+            flash('不支持的导出类型', 'danger')
+            return redirect(url_for('export_page'))
+
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv; charset=utf-8-sig',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+        )
 
     @app.context_processor
     def inject_now():

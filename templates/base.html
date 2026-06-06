@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}地下冰窖藏冰巡检系统{% endblock %}</title>
+    <title>{% block title %}冰窖风险预警与闭环处置平台{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -84,7 +84,7 @@
                 <div class="d-flex flex-column align-items-center align-items-sm-start px-0 pt-0 min-vh-100">
                     <div class="brand-title w-100 text-center text-sm-start">
                         <i class="bi bi-snow2"></i>
-                        <span>冰窖巡检系统</span>
+                        <span>冰窖风险预警平台</span>
                     </div>
                     <ul class="nav nav-pills flex-column mb-sm-auto mb-0 align-items-center align-items-sm-start w-100" id="menu">
                         <li class="nav-item w-100">
@@ -93,6 +93,31 @@
                                 <span class="ms-1 d-none d-sm-inline">首页概览</span>
                             </a>
                         </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('risk_alerts') }}" class="nav-link {% if 'risk_alert' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <span class="ms-1 d-none d-sm-inline">风险预警中心</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('rectifications') }}" class="nav-link {% if 'rectification' in request.endpoint or 'review' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-tools"></i>
+                                <span class="ms-1 d-none d-sm-inline">整改与复核</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('approvals') }}" class="nav-link {% if 'approval' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-file-earmark-check"></i>
+                                <span class="ms-1 d-none d-sm-inline">开放审批</span>
+                            </a>
+                        </li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('trends') }}" class="nav-link {% if request.endpoint == 'trends' %}active{% endif %}">
+                                <i class="bi bi-graph-up"></i>
+                                <span class="ms-1 d-none d-sm-inline">趋势分析</span>
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider text-white-50 w-100"></li>
                         <li class="nav-item w-100">
                             <a href="{{ url_for('icehouses') }}" class="nav-link {% if 'icehouse' in request.endpoint %}active{% endif %}">
                                 <i class="bi bi-building"></i>
@@ -119,13 +144,29 @@
                         </li>
                         <li class="nav-item w-100">
                             <a href="{{ url_for('repairs') }}" class="nav-link {% if 'repair' in request.endpoint %}active{% endif %}">
-                                <i class="bi bi-tools"></i>
+                                <i class="bi bi-wrench"></i>
                                 <span class="ms-1 d-none d-sm-inline">修缮工单</span>
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider text-white-50 w-100"></li>
+                        <li class="nav-item w-100">
+                            <a href="{{ url_for('export_page') }}" class="nav-link {% if 'export' in request.endpoint %}active{% endif %}">
+                                <i class="bi bi-file-earmark-spreadsheet"></i>
+                                <span class="ms-1 d-none d-sm-inline">导出报表</span>
                             </a>
                         </li>
                     </ul>
                     <hr class="w-100 text-white-50">
-                    <div class="dropdown pb-4 w-100 px-3">
+                    <div class="pb-4 w-100 px-3">
+                        <a href="{{ url_for('notifications') }}" class="d-flex align-items-center text-white text-decoration-none mb-3 position-relative">
+                            <i class="bi bi-bell me-2 fs-4"></i>
+                            <span class="d-none d-sm-inline mx-1">消息提醒</span>
+                            {% if unread_notification_count and unread_notification_count > 0 %}
+                            <span class="badge bg-danger rounded-pill position-absolute" style="top: -5px; right: 10px;">
+                                {{ unread_notification_count }}
+                            </span>
+                            {% endif %}
+                        </a>
                         <div class="d-flex align-items-center text-white text-decoration-none">
                             <i class="bi bi-person-circle me-2 fs-4"></i>
                             <span class="d-none d-sm-inline mx-1">{{ current_user.username }}</span>

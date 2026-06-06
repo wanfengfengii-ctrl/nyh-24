@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+
+{% block title %}趋势分析 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block extra_css %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-graph-up text-primary"></i> 趋势分析</h2>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">选择冰窖 <span class="text-danger">*</span></label>
+                <select class="form-select" name="ice_house_id" id="ice_house_select" required>
+                    <option value="">请选择冰窖</option>
+                    {% for h in houses %}
+                    <option value="{{ h.id }}" {% if ice_house_id == h.id %}selected{% endif %}>
+                        {{ h.code }} - {{ h.location }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">选择批次</label>
+                <select class="form-select" name="batch_id" id="batch_select">
+                    <option value="">全部批次（温湿度趋势）</option>
+                    {% for b in batches %}
+                    <option value="{{ b.id }}" {% if batch_id == b.id %}selected{% endif %}>
+                        {{ b.entry_date }} - {{ b.ice_count }}块
+                    </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">选择批次可查看该批次的融损趋势</div>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">开始日期 <span class="text-danger">*</span></label>
+                <input type="date" class="form-control" name="start_date" value="{{ start_date }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">结束日期 <span class="text-danger">*</span></label>
+                <input type="date" class="form-control" name="end_date" value="{{ end_date }}" required>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2"><i class="bi bi-search"></i> 查询</button>
+                <a href="{{ url_for('trends') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if summary %}
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-primary bg-opacity-10 text-primary me-3">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                    <div>
+                        <h6 class="text-muted mb-1">入窖总量</h6>
+                        <h3 class="mb-0">{{ summary.total_ice }} 块</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-danger bg-opacity-10 text-danger me-3">
+                        <i class="bi bi-droplet"></i>
+                    </div>
+                    <div>
+                        <h6 class="text-muted mb-1">累计融损</h6>
+                        <h3 class="mb-0">{{ summary.total_loss }} 块</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-warning bg-opacity-10 text-warning me-3">
+                        <i class="bi bi-percent"></i>
+                    </div>
+                    <div>
+                        <h6 class="text-muted mb-1">融损率</h6>
+                        <h3 class="mb-0">{{ summary.melt_rate }}%</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card card-stat">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-success bg-opacity-10 text-success me-3">
+                        <i class="bi bi-box"></i>
+                    </div>
+                    <div>
+                        <h6 class="text-muted mb-1">当前剩余</h6>
+                        <h3 class="mb-0">{{ summary.remaining }} 块</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if labels and (temp_data or melt_loss_data) %}
+<div class="row">
+    {% if temp_data and humidity_data %}
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">温湿度趋势</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="tempHumidityChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if melt_loss_data %}
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">融损趋势</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="meltLossChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if melt_rate_data %}
+    <div class="col-md-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">融损率累计趋势</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="meltRateChart" height="150"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    {% if temp_data and humidity_data %}
+    const tempCtx = document.getElementById('tempHumidityChart').getContext('2d');
+    new Chart(tempCtx, {
+        type: 'line',
+        data: {
+            labels: {{ labels | tojson }},
+            datasets: [
+                {
+                    label: '温度 (℃)',
+                    data: {{ temp_data | tojson }},
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    tension: 0.3,
+                    fill: true,
+                    yAxisID: 'y'
+                },
+                {
+                    label: '湿度 (%)',
+                    data: {{ humidity_data | tojson }},
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.3,
+                    fill: true,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: { display: true, text: '温度 (℃)' }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: { display: true, text: '湿度 (%)' },
+                    grid: { drawOnChartArea: false }
+                }
+            }
+        }
+    });
+    {% endif %}
+
+    {% if melt_loss_data %}
+    const lossCtx = document.getElementById('meltLossChart').getContext('2d');
+    new Chart(lossCtx, {
+        type: 'bar',
+        data: {
+            labels: {{ labels | tojson }},
+            datasets: [{
+                label: '融损数量 (块)',
+                data: {{ melt_loss_data | tojson }},
+                backgroundColor: 'rgba(249, 115, 22, 0.7)',
+                borderColor: '#f97316',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: '数量 (块)' }
+                }
+            }
+        }
+    });
+    {% endif %}
+
+    {% if melt_rate_data %}
+    const rateCtx = document.getElementById('meltRateChart').getContext('2d');
+    new Chart(rateCtx, {
+        type: 'line',
+        data: {
+            labels: {{ labels | tojson }},
+            datasets: [{
+                label: '累计融损率 (%)',
+                data: {{ melt_rate_data | tojson }},
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: '融损率 (%)' }
+                }
+            }
+        }
+    });
+    {% endif %}
+});
+</script>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-bar-chart fs-1"></i>
+        <p class="mt-3">请选择冰窖和时间范围，点击查询查看趋势数据</p>
+    </div>
+</div>
+{% endif %}
+
+<script>
+document.getElementById('ice_house_select').addEventListener('change', function() {
+    const houseId = this.value;
+    const batchSelect = document.getElementById('batch_select');
+    batchSelect.innerHTML = '<option value="">全部批次（温湿度趋势）</option>';
+
+    if (houseId) {
+        fetch("{{ url_for('api_batches_by_house', house_id=0) }}".replace('/0/', '/' + houseId + '/'))
+            .then(response => response.json())
+            .then(data => {
+                data.forEach(batch => {
+                    const option = document.createElement('option');
+                    option.value = batch.id;
+                    option.textContent = batch.label;
+                    batchSelect.appendChild(option);
+                });
+            });
+    }
+});
+</script>
+{% endblock %}

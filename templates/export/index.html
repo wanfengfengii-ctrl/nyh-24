@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}导出报表 - 冰窖风险预警与闭环处置平台{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-file-earmark-spreadsheet text-success"></i> 导出报表</h2>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">导出设置</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('export_data') }}">
+                    <div class="mb-4">
+                        <label class="form-label">导出类型 <span class="text-danger">*</span></label>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="form-check card p-3">
+                                    <input class="form-check-input" type="radio" name="export_type" id="type_inspections" value="inspections" checked>
+                                    <label class="form-check-label fw-bold" for="type_inspections">
+                                        <i class="bi bi-clipboard-check text-primary me-2"></i>巡检记录
+                                    </label>
+                                    <div class="form-text mt-1">导出巡检记录数据，包含温度、湿度、融损情况等</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check card p-3">
+                                    <input class="form-check-input" type="radio" name="export_type" id="type_melt_losses" value="melt_losses">
+                                    <label class="form-check-label fw-bold" for="type_melt_losses">
+                                        <i class="bi bi-droplet text-danger me-2"></i>融损登记
+                                    </label>
+                                    <div class="form-text mt-1">导出融损登记数据，包含融损数量、原因等</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check card p-3">
+                                    <input class="form-check-input" type="radio" name="export_type" id="type_rectifications" value="rectifications">
+                                    <label class="form-check-label fw-bold" for="type_rectifications">
+                                        <i class="bi bi-tools text-warning me-2"></i>整改任务
+                                    </label>
+                                    <div class="form-text mt-1">导出整改任务数据，包含状态、进度等</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check card p-3">
+                                    <input class="form-check-input" type="radio" name="export_type" id="type_risk_alerts" value="risk_alerts">
+                                    <label class="form-check-label fw-bold" for="type_risk_alerts">
+                                        <i class="bi bi-exclamation-triangle text-danger me-2"></i>风险预警
+                                    </label>
+                                    <div class="form-text mt-1">导出风险预警数据，包含预警类型、状态等</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">选择冰窖</label>
+                        <select class="form-select" name="ice_house_id">
+                            <option value="">全部冰窖</option>
+                            {% for h in houses %}
+                            <option value="{{ h.id }}">{{ h.code }} - {{ h.location }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">可选，不选则导出所有冰窖的数据</div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">开始日期</label>
+                                <input type="date" class="form-control" name="start_date">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">结束日期</label>
+                                <input type="date" class="form-control" name="end_date">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info" role="alert">
+                        <i class="bi bi-info-circle"></i> 导出文件格式为 CSV，可使用 Excel 直接打开。
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="bi bi-download"></i> 导出数据
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">导出说明</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li class="mb-2">支持按冰窖筛选导出数据</li>
+                    <li class="mb-2">支持按时间范围筛选数据</li>
+                    <li class="mb-2">导出格式为 CSV，UTF-8 编码</li>
+                    <li class="mb-2">可用 Excel、WPS 等工具打开</li>
+                    <li>可用于数据备份和报表制作</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> 小提示</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0 small text-muted">
+                    在趋势分析页面也可以查看数据图表，
+                    帮助您更直观地了解冰窖的温湿度变化和融损趋势。
+                </p>
+                <a href="{{ url_for('trends') }}" class="btn btn-outline-primary btn-sm mt-2">
+                    <i class="bi bi-graph-up"></i> 查看趋势分析
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
