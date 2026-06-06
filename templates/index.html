@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}首页概览 - 地下冰窖藏冰巡检系统{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h2 class="fw-bold">首页概览</h2>
+    <p class="text-muted">欢迎回来，{{ current_user.username }}</p>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                        <i class="bi bi-building"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ total_houses }}</h3>
+                        <small class="text-muted">冰窖总数</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-door-open"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ open_houses }}</h3>
+                        <small class="text-muted">开放中</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-danger bg-opacity-10 text-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ high_risk_houses }}</h3>
+                        <small class="text-muted">高风险</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-info bg-opacity-10 text-info">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ total_batches }}</h3>
+                        <small class="text-muted">藏冰批次</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                        <i class="bi bi-clipboard-check"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ total_inspections }}</h3>
+                        <small class="text-muted">巡检记录</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-lg-2">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="stat-icon bg-secondary bg-opacity-10 text-secondary">
+                        <i class="bi bi-tools"></i>
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="mb-0 fw-bold">{{ pending_repairs }}</h3>
+                        <small class="text-muted">待修缮</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold">
+                    <i class="bi bi-clipboard-check me-2 text-primary"></i>近期巡检记录
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_inspections %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>冰窖编号</th>
+                                <th>巡检日期</th>
+                                <th>温度</th>
+                                <th>湿度</th>
+                                <th>融损等级</th>
+                                <th>渗水</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for insp in recent_inspections %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('icehouse_detail', house_id=insp.ice_house.id) }}" class="text-decoration-none">
+                                        {{ insp.ice_house.code }}
+                                    </a>
+                                </td>
+                                <td>{{ insp.inspection_date }}</td>
+                                <td>{{ insp.temperature }}°C</td>
+                                <td>{{ insp.humidity }}%</td>
+                                <td>
+                                    {% if insp.melt_level == 'severe' %}
+                                    <span class="badge bg-danger">严重</span>
+                                    {% elif insp.melt_level == 'moderate' %}
+                                    <span class="badge bg-warning">中等</span>
+                                    {% elif insp.melt_level == 'mild' %}
+                                    <span class="badge bg-info">轻微</span>
+                                    {% else %}
+                                    <span class="badge bg-success">正常</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if insp.seepage %}
+                                    <span class="badge bg-danger badge-risk">
+                                        <i class="bi bi-droplet-fill"></i> 是
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-success">否</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-clipboard fs-1 mb-3"></i>
+                    <p>暂无巡检记录</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0 fw-bold">
+                    <i class="bi bi-tools me-2 text-primary"></i>近期修缮工单
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_repairs %}
+                <div class="list-group list-group-flush">
+                    {% for repair in recent_repairs %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">{{ repair.ice_house.code }}</h6>
+                                <p class="mb-1 small text-muted">{{ repair.issue_description[:30] }}{% if repair.issue_description|length > 30 %}...{% endif %}</p>
+                            </div>
+                            {% if repair.status == 'pending' %}
+                            <span class="badge bg-warning">待处理</span>
+                            {% elif repair.status == 'in_progress' %}
+                            <span class="badge bg-primary">进行中</span>
+                            {% else %}
+                            <span class="badge bg-success">已完成</span>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">{{ repair.report_date }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-tools fs-1 mb-3"></i>
+                    <p>暂无修缮工单</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}藏冰批次 - 地下冰窖藏冰巡检系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1">藏冰批次</h2>
+        <p class="text-muted mb-0">管理所有藏冰批次信息</p>
+    </div>
+    <a href="{{ url_for('batch_new') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>新增批次
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if batches %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>冰窖编号</th>
+                        <th>入窖日期</th>
+                        <th>冰块数量</th>
+                        <th>当前剩余</th>
+                        <th>预计保存期</th>
+                        <th>剩余率</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in batches %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('icehouse_detail', house_id=batch.ice_house.id) }}" class="text-decoration-none">
+                                {{ batch.ice_house.code }}
+                            </a>
+                        </td>
+                        <td>{{ batch.entry_date }}</td>
+                        <td>{{ batch.ice_count }} 块</td>
+                        <td class="fw-bold">{{ batch.current_remaining }} 块</td>
+                        <td>{{ batch.expected_storage_period }} 天</td>
+                        <td>
+                            {% set percent = (batch.current_remaining / batch.ice_count * 100) | round(1) %}
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar {% if percent < 50 %}bg-danger{% elif percent < 80 %}bg-warning{% else %}bg-success{% endif %}"
+                                     role="progressbar" style="width: {{ percent }}%">
+                                    {{ percent }}%
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('batch_edit', batch_id=batch.id) }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <button type="button" class="btn btn-outline-danger" onclick="confirmDelete({{ batch.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-box-seam fs-1 mb-3"></i>
+            <p>暂无藏冰批次</p>
+            <a href="{{ url_for('batch_new') }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>添加第一个批次
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+            <h5 class="modal-title">确认删除</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+            <p>确定要删除这个藏冰批次吗？相关的融损记录也会一并删除，此操作不可恢复。</p>
+            </div>
+            <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            <form id="deleteForm" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-danger">确认删除</button>
+            </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(id) {
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    document.getElementById('deleteForm').action = '/batches/' + id + '/delete';
+    modal.show();
+}
+</script>
+{% endblock %}

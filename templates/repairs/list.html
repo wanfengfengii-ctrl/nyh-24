@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}修缮工单 - 地下冰窖藏冰巡检系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1">修缮工单</h2>
+        <p class="text-muted mb-0">管理所有冰窖修缮工单</p>
+    </div>
+    <a href="{{ url_for('repair_new') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>新增工单
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if repairs %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>冰窖编号</th>
+                        <th>报修日期</th>
+                        <th>问题描述</th>
+                        <th>状态</th>
+                        <th>修缮日期</th>
+                        <th>费用</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for repair in repairs %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('icehouse_detail', house_id=repair.ice_house.id) }}" class="text-decoration-none">
+                                {{ repair.ice_house.code }}
+                            </a>
+                        </td>
+                        <td>{{ repair.report_date }}</td>
+                        <td style="max-width: 250px;">
+                            {{ repair.issue_description[:50] }}{% if repair.issue_description|length > 50 %}...{% endif %}
+                        </td>
+                        <td>
+                            {% if repair.status == 'pending' %}
+                            <span class="badge bg-warning">待处理</span>
+                            {% elif repair.status == 'in_progress' %}
+                            <span class="badge bg-primary">进行中</span>
+                            {% else %}
+                            <span class="badge bg-success">已完成</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ repair.repair_date or '-' }}</td>
+                        <td>{% if repair.repair_cost > 0 %}¥{{ repair.repair_cost }}{% else %}-{% endif %}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('repair_edit', repair_id=repair.id) }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <button type="button" class="btn btn-outline-danger" onclick="confirmDelete({{ repair.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-tools fs-1 mb-3"></i>
+            <p>暂无修缮工单</p>
+            <a href="{{ url_for('repair_new') }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>创建第一个工单
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+            <h5 class="modal-title">确认删除</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+            <p>确定要删除这个修缮工单吗？</p>
+            </div>
+            <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            <form id="deleteForm" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-danger">确认删除</button>
+            </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(id) {
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    document.getElementById('deleteForm').action = '/repairs/' + id + '/delete';
+    modal.show();
+}
+</script>
+{% endblock %}

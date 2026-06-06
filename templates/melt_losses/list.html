@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}融损登记 - 地下冰窖藏冰巡检系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1">融损登记</h2>
+        <p class="text-muted mb-0">记录冰块融损情况</p>
+    </div>
+    <a href="{{ url_for('melt_loss_new') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>登记融损
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if losses %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>冰窖编号</th>
+                        <th>批次</th>
+                        <th>记录日期</th>
+                        <th>融损数量</th>
+                        <th>原因</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for loss in losses %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('icehouse_detail', house_id=loss.ice_house.id) }}" class="text-decoration-none">
+                                {{ loss.ice_house.code }}
+                            </a>
+                        </td>
+                        <td>{{ loss.batch.entry_date }} 批次</td>
+                        <td>{{ loss.record_date }}</td>
+                        <td><span class="text-danger fw-bold">{{ loss.loss_amount }} 块</span></td>
+                        <td class="text-muted">{{ loss.reason or '-' }}</td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="confirmDelete({{ loss.id }})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-droplet fs-1 mb-3"></i>
+            <p>暂无融损记录</p>
+            <a href="{{ url_for('melt_loss_new') }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>登记第一条融损
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+            <h5 class="modal-title">确认删除</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+            <p>确定要删除这条融损记录吗？删除后会恢复对应批次的剩余量。</p>
+            </div>
+            <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            <form id="deleteForm" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-danger">确认删除</button>
+            </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(id) {
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    document.getElementById('deleteForm').action = '/melt-losses/' + id + '/delete';
+    modal.show();
+}
+</script>
+{% endblock %}

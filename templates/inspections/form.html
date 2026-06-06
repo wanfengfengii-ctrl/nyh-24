@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}{% if inspection %}编辑巡检{% else %}新增巡检{% endif %} - 巡检记录{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+    <a href="{{ url_for('inspections') }}" class="btn btn-outline-secondary me-3">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <div>
+        <h2 class="fw-bold mb-1">{% if inspection %}编辑巡检{% else %}新增巡检{% endif %}</h2>
+        <p class="text-muted mb-0">填写巡检记录信息</p>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <form method="POST">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="ice_house_id" class="form-label">所属冰窖 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="ice_house_id" name="ice_house_id" required>
+                        <option value="">请选择冰窖</option>
+                        {% for h in houses %}
+                        <option value="{{ h.id }}" {% if inspection and inspection.ice_house_id == h.id %}selected{% endif %}>
+                            {{ h.code }} - {{ h.location }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="inspection_date" class="form-label">巡检日期 <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control" id="inspection_date" name="inspection_date"
+                           value="{{ inspection.inspection_date if inspection else '' }}" required>
+                    <div class="form-text">不能晚于当前日期</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="temperature" class="form-label">温度(°C) <span class="text-danger">*</span></label>
+                    <input type="number" step="0.1" class="form-control" id="temperature" name="temperature"
+                           value="{{ inspection.temperature if inspection else '' }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label for="humidity" class="form-label">湿度(%) <span class="text-danger">*</span></label>
+                    <input type="number" step="0.1" class="form-control" id="humidity" name="humidity"
+                           value="{{ inspection.humidity if inspection else '' }}" required min="0" max="100">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                               id="seepage" name="seepage"
+                               {% if inspection and inspection.seepage %}checked{% endif %}>
+                        <label class="form-check-label" for="seepage">有渗水情况</label>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label for="melt_level" class="form-label">融损等级</label>
+                    <select class="form-select" id="melt_level" name="melt_level">
+                        <option value="normal" {% if inspection and inspection.melt_level == 'normal' %}selected{% endif %}>正常</option>
+                        <option value="mild" {% if inspection and inspection.melt_level == 'mild' %}selected{% endif %}>轻微</option>
+                        <option value="moderate" {% if inspection and inspection.melt_level == 'moderate' %}selected{% endif %}>中等</option>
+                        <option value="severe" {% if inspection and inspection.melt_level == 'severe' %}selected{% endif %}>严重</option>
+                    </select>
+                    <div class="form-text">渗水或严重融损会自动标记冰窖为高风险</div>
+                </div>
+                <div class="col-12">
+                    <label for="suggestions" class="form-label">处理建议</label>
+                    <textarea class="form-control" id="suggestions" name="suggestions" rows="3"
+                              placeholder="请输入处理建议或备注">{{ inspection.suggestions if inspection else '' }}</textarea>
+                </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-top">
+                <button type="submit" class="btn btn-primary me-2">
+                    <i class="bi bi-save me-1"></i>保存
+                </button>
+                <a href="{{ url_for('inspections') }}" class="btn btn-outline-secondary">
+                    取消
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

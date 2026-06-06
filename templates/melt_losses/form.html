@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}{% if loss %}编辑融损{% else %}登记融损{% endif %} - 融损登记{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+    <a href="{{ url_for('melt_losses') }}" class="btn btn-outline-secondary me-3">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <div>
+        <h2 class="fw-bold mb-1">{% if loss %}编辑融损{% else %}登记融损{% endif %}</h2>
+        <p class="text-muted mb-0">填写融损登记信息</p>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <form method="POST">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="ice_house_id" class="form-label">所属冰窖 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="ice_house_id" name="ice_house_id" required
+                            hx-get="/api/batches/by-house/{ice_house_id}"
+                            hx-target="#batch_id"
+                            hx-trigger="change"
+                            hx-swap="innerHTML">
+                        <option value="">请选择冰窖</option>
+                        {% for h in houses %}
+                        <option value="{{ h.id }}" {% if loss and loss.ice_house_id == h.id %}selected{% endif %}>
+                            {{ h.code }} - {{ h.location }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="batch_id" class="form-label">藏冰批次 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="batch_id" name="batch_id" required>
+                        <option value="">请先选择冰窖</option>
+                        {% if loss %}
+                        {% for b in batches %}
+                        {% if b.ice_house_id == loss.ice_house_id %}
+                        <option value="{{ b.id }}" {% if loss.batch_id == b.id %}selected{% endif %}>
+                            {{ b.entry_date }} - {{ b.ice_count }}块 (剩余{{ b.current_remaining }})
+                        </option>
+                        {% endif %}
+                        {% endfor %}
+                        {% endif %}
+                    </select>
+                    <div class="form-text">选择冰窖后自动加载对应批次</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="record_date" class="form-label">记录日期 <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control" id="record_date" name="record_date"
+                           value="{{ loss.record_date if loss else '' }}" required>
+                    <div class="form-text">不能晚于当前日期</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="loss_amount" class="form-label">融损数量(块) <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="loss_amount" name="loss_amount"
+                           value="{{ loss.loss_amount if loss else '' }}" required min="1">
+                    <div class="form-text">不能大于批次剩余量</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="reason" class="form-label">融损原因</label>
+                    <input type="text" class="form-control" id="reason" name="reason"
+                           value="{{ loss.reason if loss else '' }}"
+                           placeholder="例如：温度升高、渗水等">
+                </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-top">
+                <button type="submit" class="btn btn-primary me-2">
+                    <i class="bi bi-save me-1"></i>保存
+                </button>
+                <a href="{{ url_for('melt_losses') }}" class="btn btn-outline-secondary">
+                    取消
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const iceHouseSelect = document.getElementById('ice_house_id');
+    const batchSelect = document.getElementById('batch_id');
+
+    iceHouseSelect.addEventListener('change', function() {
+        const houseId = this.value;
+        if (!houseId) {
+            batchSelect.innerHTML = '<option value="">请先选择冰窖</option>';
+            return;
+        }
+
+        fetch('/api/batches/by-house/' + houseId)
+            .then(response => response.json())
+            .then(data => {
+                batchSelect.innerHTML = '<option value="">请选择批次</option>';
+                data.forEach(function(batch) {
+                    const option = document.createElement('option');
+                    option.value = batch.id;
+                    option.textContent = batch.label;
+                    batchSelect.appendChild(option);
+                });
+            });
+    });
+});
+</script>
+{% endblock %}

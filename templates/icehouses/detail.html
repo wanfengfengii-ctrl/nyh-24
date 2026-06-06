@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}{{ house.code }} - 冰窖详情{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+    <a href="{{ url_for('icehouses') }}" class="btn btn-outline-secondary me-3">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <div class="flex-grow-1">
+        <h2 class="fw-bold mb-1">
+            {{ house.code }}
+            {% if house.high_risk %}
+            <span class="badge bg-danger ms-2 badge-risk">
+                <i class="bi bi-exclamation-triangle-fill"></i> 高风险
+            </span>
+            {% endif %}
+        </h2>
+        <p class="text-muted mb-0">{{ house.location }}</p>
+    </div>
+    <div class="btn-group">
+        <a href="{{ url_for('icehouse_edit', house_id=house.id) }}" class="btn btn-outline-primary">
+            <i class="bi bi-pencil me-1"></i>编辑
+        </a>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">建造年代</h6>
+                <h4 class="fw-bold mb-0">{{ house.build_year or '未知' }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">容量</h6>
+                <h4 class="fw-bold mb-0">{{ house.capacity }} 块</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">开放状态</h6>
+                <h4 class="mb-0">
+                    {% if house.is_open %}
+                    <span class="badge bg-success fs-6">开放中</span>
+                    {% else %}
+                    <span class="badge bg-secondary fs-6">未开放</span>
+                    {% endif %}
+                </h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">藏冰批次</h6>
+                <h4 class="fw-bold mb-0">{{ batches|length }} 批</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">藏冰批次</h5>
+                <a href="{{ url_for('batch_new') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-plus"></i> 新增
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {% if batches %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>入窖日期</th>
+                                <th>数量</th>
+                                <th>剩余</th>
+                                <th>保存期</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for batch in batches %}
+                            <tr>
+                                <td>{{ batch.entry_date }}</td>
+                                <td>{{ batch.ice_count }}</td>
+                                <td>
+                                    <span class="{% if batch.current_remaining < batch.ice_count * 0.5 %}text-warning fw-bold{% endif %}">
+                                        {{ batch.current_remaining }}
+                                    </span>
+                                </td>
+                                <td>{{ batch.expected_storage_period }} 天</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-box-seam fs-2 mb-2"></i>
+                    <p class="mb-0">暂无藏冰批次</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">最近巡检</h5>
+                <a href="{{ url_for('inspection_new') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-plus"></i> 新增
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {% if inspections %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>温度</th>
+                                <th>湿度</th>
+                                <th>融损</th>
+                                <th>渗水</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for insp in inspections %}
+                            <tr>
+                                <td>{{ insp.inspection_date }}</td>
+                                <td>{{ insp.temperature }}°C</td>
+                                <td>{{ insp.humidity }}%</td>
+                                <td>
+                                    {% if insp.melt_level == 'severe' %}
+                                    <span class="badge bg-danger">严重</span>
+                                    {% elif insp.melt_level == 'moderate' %}
+                                    <span class="badge bg-warning">中等</span>
+                                    {% elif insp.melt_level == 'mild' %}
+                                    <span class="badge bg-info">轻微</span>
+                                    {% else %}
+                                    <span class="badge bg-success">正常</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if insp.seepage %}
+                                    <span class="badge bg-danger">
+                                        <i class="bi bi-droplet-fill"></i>
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-success">否</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-clipboard fs-2 mb-2"></i>
+                    <p class="mb-0">暂无巡检记录</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">修缮工单</h5>
+                <a href="{{ url_for('repair_new') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-plus"></i> 新增
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {% if repairs %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>报修日期</th>
+                                <th>问题描述</th>
+                                <th>状态</th>
+                                <th>修缮日期</th>
+                                <th>费用</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for repair in repairs %}
+                            <tr>
+                                <td>{{ repair.report_date }}</td>
+                                <td>{{ repair.issue_description[:50] }}{% if repair.issue_description|length > 50 %}...{% endif %}</td>
+                                <td>
+                                    {% if repair.status == 'pending' %}
+                                    <span class="badge bg-warning">待处理</span>
+                                    {% elif repair.status == 'in_progress' %}
+                                    <span class="badge bg-primary">进行中</span>
+                                    {% else %}
+                                    <span class="badge bg-success">已完成</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ repair.repair_date or '-' }}</td>
+                                <td>¥{{ repair.repair_cost }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-tools fs-2 mb-2"></i>
+                    <p class="mb-0">暂无修缮工单</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

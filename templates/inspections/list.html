@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}巡检记录 - 地下冰窖藏冰巡检系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1">巡检记录</h2>
+        <p class="text-muted mb-0">管理所有冰窖巡检记录</p>
+    </div>
+    <a href="{{ url_for('inspection_new') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>新增巡检
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if inspections %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>冰窖编号</th>
+                        <th>巡检日期</th>
+                        <th>温度</th>
+                        <th>湿度</th>
+                        <th>渗水情况</th>
+                        <th>融损等级</th>
+                        <th>处理建议</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for insp in inspections %}
+                    <tr class="{% if insp.seepage or insp.melt_level == 'severe' %}table-danger{% endif %}">
+                        <td>
+                            <a href="{{ url_for('icehouse_detail', house_id=insp.ice_house.id) }}" class="text-decoration-none">
+                                {{ insp.ice_house.code }}
+                            </a>
+                        </td>
+                        <td>{{ insp.inspection_date }}</td>
+                        <td>{{ insp.temperature }}°C</td>
+                        <td>{{ insp.humidity }}%</td>
+                        <td>
+                            {% if insp.seepage %}
+                            <span class="badge bg-danger badge-risk">
+                                <i class="bi bi-droplet-fill me-1"></i>有渗水
+                            </span>
+                            {% else %}
+                            <span class="badge bg-success">无</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if insp.melt_level == 'severe' %}
+                            <span class="badge bg-danger">严重</span>
+                            {% elif insp.melt_level == 'moderate' %}
+                            <span class="badge bg-warning">中等</span>
+                            {% elif insp.melt_level == 'mild' %}
+                            <span class="badge bg-info">轻微</span>
+                            {% else %}
+                            <span class="badge bg-success">正常</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small" style="max-width: 200px;">
+                            {{ insp.suggestions or '-' }}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('inspection_edit', inspection_id=insp.id) }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <button type="button" class="btn btn-outline-danger" onclick="confirmDelete({{ insp.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-clipboard-check fs-1 mb-3"></i>
+            <p>暂无巡检记录</p>
+            <a href="{{ url_for('inspection_new') }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>添加第一条记录
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+            <h5 class="modal-title">确认删除</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+            <p>确定要删除这条巡检记录吗？</p>
+            </div>
+            <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            <form id="deleteForm" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-danger">确认删除</button>
+            </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(id) {
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    document.getElementById('deleteForm').action = '/inspections/' + id + '/delete';
+    modal.show();
+}
+</script>
+{% endblock %}
